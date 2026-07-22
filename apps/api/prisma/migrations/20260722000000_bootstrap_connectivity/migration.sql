@@ -1,0 +1,1 @@
+-- Bootstrap connectivity migration intentionally contains no domain tables.

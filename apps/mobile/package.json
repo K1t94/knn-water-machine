@@ -1,0 +1,28 @@
+{
+  "name": "@kaynann/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "dev": "expo start --dev-client",
+    "start": "expo start",
+    "lint": "eslint src __tests__ index.ts app.config.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build:js": "EXPO_NO_TELEMETRY=1 expo export --platform all --output-dir dist/mobile",
+    "prebuild": "EXPO_NO_TELEMETRY=1 expo prebuild",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  },
+  "dependencies": {
+    "expo": "^54.0.0",
+    "expo-dev-client": "^6.0.0",
+    "react": "19.1.0",
+    "react-native": "0.81.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

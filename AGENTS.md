@@ -114,3 +114,16 @@ High severity:
 - schema-damaging change
 - unsafe destructive command
 
+## Requirements Source
+
+- `docs/mvp-requirements.md` is the source of truth for MVP product requirements.
+- For each new feature specification, read only the sections relevant to the current feature.
+- Do not load the entire requirements document unless cross-feature consistency must be checked.
+- Feature-specific decisions in an approved `specs/<feature>/spec.md` may clarify the MVP requirements but must not silently contradict them.
+- Any conflict or required scope change must be reported before implementation.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/001-project-bootstrap/plan.md
+<!-- SPECKIT END -->

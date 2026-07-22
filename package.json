@@ -1,0 +1,35 @@
+{
+  "name": "@kaynann/water-vending",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @kaynann/api --filter @kaynann/mobile run dev",
+    "dev:api": "pnpm --filter @kaynann/api dev",
+    "dev:mobile": "pnpm --filter @kaynann/mobile dev",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm --recursive --if-present test",
+    "build:api": "pnpm --filter @kaynann/api build",
+    "build:mobile:js": "pnpm --filter @kaynann/mobile build:js",
+    "services:up": "docker compose -f infra/compose.yaml up -d",
+    "services:down": "docker compose -f infra/compose.yaml down",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "verify:start": "node scripts/verify-startup.mjs",
+    "mobile:doctor": "node scripts/mobile-doctor.mjs",
+    "mobile:prebuild": "pnpm --filter @kaynann/mobile prebuild",
+    "check:env": "node scripts/check-env-example.mjs",
+    "check:repo": "node scripts/check-repo-bootstrap.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.28.0",
+    "@types/node": "^22.15.21",
+    "eslint": "^9.28.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.34.0",
+    "vitest": "^3.2.4"
+  }
+}

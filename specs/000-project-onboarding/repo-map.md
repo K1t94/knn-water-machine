@@ -2,17 +2,17 @@
 
 Краткая карта репозитория KAYNANN Water Vending MVP. Источник продуктовых границ — `specs/000-project-onboarding/intake.md` и актуальные feature-specs.
 
-> Статус: приложение ещё не создано. Структура ниже является целевой для bootstrap. После создания workspace заменить предполагаемые пути и команды фактическими.
+> Статус: bootstrap создан. Карта отражает фактическую структуру и команды текущего MVP.
 
 ## Stack
 
 - TypeScript.
-- Mobile: React Native, iOS и Android.
-- Backend: NestJS, Node.js, Swagger/OpenAPI.
-- Data: PostgreSQL; ORM будет выбран в bootstrap-spec.
-- Messaging: Redis, очередь фоновых задач, MQTT через `MachineGateway`.
-- Integrations: SMS/OTP, Wave, Orange Money, FCM/APNs, карты и геолокация.
-- Tooling: единый workspace/monorepo; package manager, Node.js LTS и test runner будут закреплены в bootstrap-spec.
+- Mobile: React Native 0.81 on Expo SDK 54, iOS и Android.
+- Backend: NestJS 11 on Node.js 24.x LTS.
+- Data: PostgreSQL 17, Prisma 6 migrations.
+- Local messaging: Redis 7 and Mosquitto 2 MQTT emulator.
+- Tooling: pnpm 10.15.1 workspace; Vitest 3; ESLint 9; Prettier 3.
+- Scope: connectivity/bootstrap only; no OTP, payments, balance, dispensing, referrals, or external providers.
 
 ## Top-Level Layout
 
@@ -26,15 +26,21 @@
 │   └── 000-project-onboarding/
 │       ├── intake.md
 │       └── repo-map.md
-├── apps/                             # создать на этапе bootstrap
-│   ├── mobile/                       # React Native приложение
-│   └── api/                          # NestJS API и background jobs
-├── packages/                         # создать только для реально общего кода
-│   ├── contracts/                    # API DTO/types; без бизнес-логики
-│   └── config/                       # общие настройки tooling
-├── infra/                            # local services и deployment config
-├── docs/                             # краткие технические решения/инструкции
-└── package.json                      # root workspace scripts после bootstrap
+├── apps/
+│   ├── mobile/                       # Expo app; manifest and entry: apps/mobile/
+│   │   ├── index.ts                  # Expo registration entry point
+│   │   ├── src/App.tsx               # baseline screen
+│   │   └── __tests__/App.test.tsx    # mobile smoke test
+│   └── api/                          # NestJS API; manifest and entry: apps/api/
+│       ├── src/config/               # validated env loading/redacted diagnostics
+│       ├── src/health/               # bounded dependency probes and GET /health
+│       ├── test/                     # API contract and startup smoke tests
+│       └── prisma/                   # schema and migrations
+├── infra/                            # Compose and Mosquitto emulator config
+├── docs/local-development.md         # local setup, toolchain, and validation
+├── scripts/                          # startup, safety, and mobile prerequisite checks
+├── .env.example                      # safe local placeholders only
+└── package.json                      # root workspace scripts
 ```
 
 Не создавать общий `shared`-пакет без конкретного переиспользуемого контракта. Backend остаётся владельцем бизнес-правил, баланса и финансовых операций.
@@ -46,13 +52,15 @@
 - `specs/<feature>/spec.md` — продуктовые требования конкретной feature.
 - `specs/<feature>/plan.md` — утверждённое техническое решение feature.
 - `specs/<feature>/tasks.md` — порядок реализации feature.
-- `apps/mobile/` — точные React Native entry points записать после выбора React Native CLI/Expo и bootstrap.
-- `apps/api/src/main.ts` — ожидаемая точка запуска NestJS HTTP API; подтвердить после bootstrap.
-- `apps/api/src/app.module.ts` — ожидаемый composition root backend; подтвердить после bootstrap.
-- `apps/api/src/migrations/` или ORM-equivalent — схема и миграции PostgreSQL; точный путь зависит от выбранного ORM.
-- `infra/` — локальные PostgreSQL, Redis и MQTT broker/emulator; точные файлы записать после bootstrap.
+- `apps/mobile/index.ts` — Expo registration entry point; `apps/mobile/src/App.tsx` — baseline screen.
+- `apps/api/src/main.ts` — NestJS HTTP API bootstrap and lifecycle.
+- `apps/api/src/app.module.ts` — backend composition root.
+- `apps/api/src/health/health.controller.ts` — public `GET /health`, 200/503 contract.
+- `apps/api/prisma/schema.prisma` — Prisma datasource/generator; migrations in `apps/api/prisma/migrations/`.
+- `infra/compose.yaml` — PostgreSQL, Redis, Mosquitto services and healthchecks.
+- `infra/mosquitto/mosquitto.conf` — anonymous local MQTT listener only; no vending topics.
 
-## Feature Areas
+## Future Feature Areas
 
 - `auth`, `users`, `legal` — телефон, OTP, токены, завершение регистрации только после принятия актуальных legal-документов.
 - `machines`, `map`, `qr` — перечень автоматов, статусы, геопоиск, QR/manual machine ID.
@@ -66,28 +74,39 @@
 
 ## Test Layout
 
-- `apps/api/src/**/*.spec.ts` — unit-тесты доменной и прикладной логики рядом с кодом либо в утверждённом bootstrap layout.
-- `apps/api/test/integration/` — PostgreSQL/Redis, webhook, MQTT emulator и persistence boundaries.
-- `apps/api/test/e2e/` — критические backend-сценарии через публичный API.
-- `apps/mobile/src/**/*.test.ts(x)` — mobile units/components.
-- `apps/mobile/e2e/` — основные iOS/Android пользовательские потоки, если выбранный toolchain поддерживает их в MVP.
+- `apps/api/test/health.e2e-spec.ts` — public health contract tests.
+- `apps/api/test/startup.smoke-spec.ts` — configuration, redaction, and bounded startup smoke tests.
+- `apps/mobile/__tests__/App.test.tsx` — baseline Expo render test.
 
-Обязательные сценарии: OTP + legal; повторный webhook; конкурентное списание; таймаут кнопки; недовыдача; повтор MQTT-события; `UNKNOWN/NO_CONNECT`; реферальный бонус и ограничения промокода.
+These are future product areas, not implemented by the bootstrap. Обязательные сценарии будущих feature: OTP + legal; повторный webhook; конкурентное списание; таймаут кнопки; недовыдача; повтор MQTT-события; `UNKNOWN/NO_CONNECT`; реферальный бонус и ограничения промокода.
 
 ## Validation Commands
 
-Команды ещё не существуют. В bootstrap-spec определить root scripts со стабильными именами:
+Фактические root-команды из `package.json`:
 
-- install dependencies;
-- start mobile/API/local services;
-- lint;
-- typecheck;
-- unit tests;
-- integration/e2e tests;
-- build API/Android/iOS;
-- create/apply/rollback migrations.
+```sh
+pnpm install --frozen-lockfile
+pnpm services:up
+pnpm services:down
+pnpm db:migrate
+pnpm dev
+pnpm dev:api
+pnpm dev:mobile
+pnpm verify:start
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build:api
+pnpm build:mobile:js
+pnpm mobile:doctor
+pnpm mobile:prebuild
+pnpm check:env
+pnpm check:repo
+```
 
-После bootstrap заменить этот список точными копируемыми командами из `package.json` и инфраструктурных файлов.
+`pnpm verify:start` запускает сервисы, поднимает API через `dev:api` и
+проверяет `GET /health`: HTTP 200, все три dependency status `up`, лимит 5
+секунд. При недоступной зависимости ожидается HTTP 503 без зависания.
 
 ## Ignore By Default
 
@@ -96,7 +115,7 @@
 - build output Android/iOS/Node.js.
 - coverage output, caches и logs.
 - generated OpenAPI/ORM/native artifacts.
-- `.env*`, credentials, signing keys и сертификаты; допускается чтение только безопасных example-файлов.
+- `.env*`, credentials, signing keys и сертификаты; допускается чтение только `.env.example`.
 - старые `specs/`, не связанные с текущей feature.
 - lockfile, кроме задач по зависимостям.
 
