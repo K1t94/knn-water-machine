@@ -1,0 +1,25 @@
+model = "gpt-5.4-mini"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+model_reasoning_effort = "low"
+model_verbosity = "low"
+personality = "pragmatic"
+web_search = "cached"
+log_dir = ".codex/logs"
+tool_output_token_limit = 6000
+model_auto_compact_token_limit = 90000
+
+[features]
+undo = true
+
+[shell_environment_policy]
+include_only = [
+  "PATH",
+  "HOME",
+  "SHELL",
+  "TERM",
+  "USER",
+  "NVM_DIR",
+  "PNPM_HOME",
+  "VOLTA_HOME"
+]

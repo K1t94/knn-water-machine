@@ -1,0 +1,79 @@
+2026-07-22T09:46:13.659910Z  INFO codex_tui::tui: terminal startup probes completed duration_ms=0 cursor_position=true default_colors=true keyboard_enhancement_supported=Some(false)
+2026-07-22T09:46:13.724145Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:13.725071Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=810µs time.idle=116µs
+2026-07-22T09:46:14.085657Z  INFO codex_core_skills::service: skills cache cleared (0 entries)
+2026-07-22T09:46:14.214808Z  INFO thread_spawn{otel.name="thread_spawn"}: codex_core::session: new
+2026-07-22T09:46:14.216562Z  INFO thread_spawn{otel.name="thread_spawn"}:load: codex_core::exec_policy: new
+2026-07-22T09:46:14.216926Z  INFO thread_spawn{otel.name="thread_spawn"}:load: codex_core::exec_policy: close time.busy=175µs time.idle=190µs
+2026-07-22T09:46:14.217297Z  INFO codex_tui::app: tui startup initial frame scheduled duration_ms=495 bootstrap_ms=485 runtime_model_provider_ms=0 thread_and_widget_ms=9 initial_session_ms=0 event_stream_ms=0
+2026-07-22T09:46:14.218322Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init: codex_core::session::session: new
+2026-07-22T09:46:14.219282Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.thread_persistence{otel.name="session_init.thread_persistence" session_init.ephemeral=false}: codex_core::session::session: new
+2026-07-22T09:46:14.219299Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.state_db{otel.name="session_init.state_db" session_init.ephemeral=false}: codex_core::session::session: new
+2026-07-22T09:46:14.219309Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.auth_mcp{otel.name="session_init.auth_mcp"}: codex_core::session::session: new
+2026-07-22T09:46:14.221471Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.thread_persistence{otel.name="session_init.thread_persistence" session_init.ephemeral=false}: codex_core::session::session: close time.busy=2.07ms time.idle=116µs
+2026-07-22T09:46:14.221604Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.state_db{otel.name="session_init.state_db" session_init.ephemeral=false}: codex_core::session::session: close time.busy=72.0µs time.idle=2.23ms
+2026-07-22T09:46:14.221799Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.auth_mcp{otel.name="session_init.auth_mcp"}:mcp.runtime_config.project_for_step: codex_core::mcp: new
+2026-07-22T09:46:14.222494Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.auth_mcp{otel.name="session_init.auth_mcp"}:mcp.runtime_config.project_for_step:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.246093Z  INFO codex_core_plugins::remote::remote_installed_plugin_sync: completed remote installed plugin bundle sync materialized_remote_plugins=[] removed_cache_plugin_ids=[] failed_remote_plugin_ids=[]
+2026-07-22T09:46:14.260111Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.auth_mcp{otel.name="session_init.auth_mcp"}:mcp.runtime_config.project_for_step:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=17.2ms time.idle=20.5ms
+2026-07-22T09:46:14.261153Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.auth_mcp{otel.name="session_init.auth_mcp"}:mcp.runtime_config.project_for_step: codex_core::mcp: close time.busy=19.7ms time.idle=19.6ms
+2026-07-22T09:46:14.261642Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.auth_mcp{otel.name="session_init.auth_mcp"}: codex_core::session::session: close time.busy=21.1ms time.idle=21.3ms
+2026-07-22T09:46:14.263085Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:environments.snapshot: codex_core::environment_selection: new
+2026-07-22T09:46:14.263773Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:environments.snapshot: codex_core::environment_selection: close time.busy=317µs time.idle=371µs
+2026-07-22T09:46:14.263793Z  INFO shell_snapshot{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}: codex_core::shell_snapshot: new
+2026-07-22T09:46:14.263814Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}: codex_core::session::session: new
+2026-07-22T09:46:14.263908Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:agents_md.refresh: codex_core::agents_md_manager: new
+2026-07-22T09:46:14.264404Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.266988Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=441µs time.idle=2.14ms
+2026-07-22T09:46:14.267333Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_core_skills::service: new
+2026-07-22T09:46:14.269663Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:agents_md.refresh: codex_core::agents_md_manager: close time.busy=928µs time.idle=4.83ms
+2026-07-22T09:46:14.286957Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_core_skills::service: close time.busy=12.1ms time.idle=7.47ms
+2026-07-22T09:46:14.287047Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}: codex_core::session::session: close time.busy=15.5ms time.idle=7.68ms
+2026-07-22T09:46:14.287340Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.thread_name_lookup{otel.name="session_init.thread_name_lookup"}: codex_core::session::session: new
+2026-07-22T09:46:14.314937Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.thread_name_lookup{otel.name="session_init.thread_name_lookup"}: codex_core::session::session: close time.busy=26.6ms time.idle=1.02ms
+2026-07-22T09:46:14.315128Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.315173Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=33.0µs time.idle=12.0µs
+2026-07-22T09:46:14.318103Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:session_init.mcp_manager_init{otel.name="session_init.mcp_manager_init"}: codex_core::session::session: new
+2026-07-22T09:46:14.327678Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:environments.snapshot: codex_core::environment_selection: new
+2026-07-22T09:46:14.327714Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:environments.snapshot: codex_core::environment_selection: close time.busy=14.1µs time.idle=23.0µs
+2026-07-22T09:46:14.332362Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.332466Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=72.1µs time.idle=33.3µs
+2026-07-22T09:46:14.332582Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:skills_for_config{otel.name="skills_for_config"}: codex_core_skills::service: new
+2026-07-22T09:46:14.333720Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:skills_for_config{otel.name="skills_for_config"}: codex_core_skills::service: close time.busy=555µs time.idle=582µs
+2026-07-22T09:46:14.335639Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture: codex_core::session: new
+2026-07-22T09:46:14.335694Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture:agents_md.refresh: codex_core::agents_md_manager: new
+2026-07-22T09:46:14.335725Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture:agents_md.refresh: codex_core::agents_md_manager: close time.busy=24.0µs time.idle=6.47µs
+2026-07-22T09:46:14.336108Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture:capability_roots.snapshot_for_step{root_count=0}: codex_core::session::mcp: new
+2026-07-22T09:46:14.336135Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture:capability_roots.snapshot_for_step{root_count=0}: codex_core::session::mcp: close time.busy=2.44µs time.idle=25.6µs
+2026-07-22T09:46:14.336174Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture:mcp.runtime.resolve_for_step: codex_core::session::mcp: new
+2026-07-22T09:46:14.336294Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture:mcp.runtime.resolve_for_step: codex_core::session::mcp: close time.busy=92.1µs time.idle=28.5µs
+2026-07-22T09:46:14.336323Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:step_context.capture: codex_core::session: close time.busy=652µs time.idle=33.2µs
+2026-07-22T09:46:14.338065Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.338129Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=45.3µs time.idle=19.1µs
+2026-07-22T09:46:14.339203Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.339303Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=81.1µs time.idle=27.5µs
+2026-07-22T09:46:14.339569Z  INFO session_loop{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}: codex_core::session: new
+2026-07-22T09:46:14.363149Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:model_client.stream_responses_websocket{model=gpt-5.4-mini wire_api=responses transport="responses_websocket" api.path="responses" turn.has_metadata_header=true websocket.warmup=true}: codex_core::client: new
+2026-07-22T09:46:14.363705Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:model_client.stream_responses_websocket{model=gpt-5.4-mini wire_api=responses transport="responses_websocket" api.path="responses" turn.has_metadata_header=true websocket.warmup=true}:model_client.websocket_connection{provider=OpenAI wire_api=responses transport="responses_websocket" api.path="responses" turn.has_metadata_header=true}: codex_core::client: new
+2026-07-22T09:46:14.607067Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.607128Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=40.0µs time.idle=21.5µs
+2026-07-22T09:46:14.609872Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:14.609928Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=38.9µs time.idle=17.7µs
+2026-07-22T09:46:14.855050Z  WARN codex_tui::chatwidget::connectors: failed to load full apps list; falling back to installed apps snapshot: app/list failed in TUI
+2026-07-22T09:46:15.269007Z  INFO codex_core_plugins::remote::remote_installed_plugin_sync: completed remote installed plugin bundle sync materialized_remote_plugins=[] removed_cache_plugin_ids=[] failed_remote_plugin_ids=[]
+2026-07-22T09:46:15.394263Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:model_client.stream_responses_websocket{model=gpt-5.4-mini wire_api=responses transport="responses_websocket" api.path="responses" turn.has_metadata_header=true websocket.warmup=true}:model_client.websocket_connection{provider=OpenAI wire_api=responses transport="responses_websocket" api.path="responses" turn.has_metadata_header=true}: codex_core::client: close time.busy=405ms time.idle=625ms
+2026-07-22T09:46:16.033406Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init:model_client.stream_responses_websocket{model=gpt-5.4-mini wire_api=responses transport="responses_websocket" api.path="responses" turn.has_metadata_header=true websocket.warmup=true}: codex_core::client: close time.busy=407ms time.idle=1.26s
+2026-07-22T09:46:16.545607Z  INFO shell_snapshot{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}: codex_core::shell_snapshot: Shell snapshot successfully created: /Users/k1t94/.codex-chatgpt/shell_snapshots/019f8937-f74a-7f13-8a67-a1d0cb33b562.tmp-1784713574263886000
+2026-07-22T09:46:16.576914Z  INFO shell_snapshot{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}: codex_core::shell_snapshot: close time.busy=14.2ms time.idle=2.30s
+2026-07-22T09:46:41.857394Z  INFO session_loop{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}:submission_dispatch{otel.name="op.dispatch.thread_settings" submission.id="019f8938-6340-7dc1-851f-8509498ffdf6" codex.op="thread_settings"}: codex_core::session::handlers: new
+2026-07-22T09:46:41.867354Z  INFO session_loop{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}:submission_dispatch{otel.name="op.dispatch.thread_settings" submission.id="019f8938-6340-7dc1-851f-8509498ffdf6" codex.op="thread_settings"}: codex_core::session::handlers: close time.busy=5.55ms time.idle=4.41ms
+2026-07-22T09:46:41.867488Z  INFO session_loop{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}:submission_dispatch{otel.name="op.dispatch.thread_settings" submission.id="019f8938-634a-7822-92b4-a1053f12f558" codex.op="thread_settings"}: codex_core::session::handlers: new
+2026-07-22T09:46:41.872179Z  INFO session_loop{thread_id=019f8937-f74a-7f13-8a67-a1d0cb33b562}:submission_dispatch{otel.name="op.dispatch.thread_settings" submission.id="019f8938-634a-7822-92b4-a1053f12f558" codex.op="thread_settings"}: codex_core::session::handlers: close time.busy=4.55ms time.idle=138µs
+2026-07-22T09:46:41.876822Z  INFO codex_core_skills::service: skills cache cleared (2 entries)
+2026-07-22T09:46:41.876896Z  INFO environments.snapshot: codex_core::environment_selection: new
+2026-07-22T09:46:41.876913Z  INFO environments.snapshot: codex_core::environment_selection: close time.busy=9.86µs time.idle=6.64µs
+2026-07-22T09:46:41.876934Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: new
+2026-07-22T09:46:41.904507Z  INFO plugins_for_config{otel.name="plugins_for_config" plugins_enabled=true}: codex_core_plugins::manager: close time.busy=10.0ms time.idle=17.5ms
+2026-07-22T09:46:41.904756Z  INFO codex_core_skills::service: skills cache cleared (0 entries)
+2026-07-22T09:46:41.904958Z  INFO codex_tui::app::event_dispatch: Selected model: gpt-5.6-luna, Selected effort: medium
+2026-07-22T09:46:42.930049Z  INFO codex_core_plugins::remote::remote_installed_plugin_sync: completed remote installed plugin bundle sync materialized_remote_plugins=[] removed_cache_plugin_ids=[] failed_remote_plugin_ids=[]
