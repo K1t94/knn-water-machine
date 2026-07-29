@@ -19,6 +19,7 @@
   "include": [
     "apps/api/src/**/*.ts",
     "apps/mobile/index.ts",
+    "apps/mobile/src/**/*.ts",
     "apps/mobile/src/**/*.tsx",
     "apps/mobile/app.config.ts",
     "apps/mobile/__tests__/**/*.tsx",

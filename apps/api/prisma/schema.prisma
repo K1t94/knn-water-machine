@@ -6,3 +6,163 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum LegalDocumentKind {
+  TERMS_OF_SERVICE
+  PRIVACY_POLICY
+}
+
+enum UserSessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum SessionRevokeReason {
+  LOGOUT
+  REPLAY
+  ADMIN
+  EXPIRED
+}
+
+enum RefreshTokenStatus {
+  ACTIVE
+  ROTATED
+  REVOKED
+  EXPIRED
+}
+
+enum SmsProviderKind {
+  FAKE
+  ORANGE
+}
+
+enum SmsDeliveryStatus {
+  PREPARED
+  ACCEPTED
+  DELIVERED
+  UNCERTAIN
+  FAILED
+}
+
+enum SmsFailureCategory {
+  INVALID_CONFIGURATION
+  AUTHENTICATION_FAILED
+  BALANCE_EXHAUSTED
+  PROVIDER_RATE_LIMITED
+  INVALID_RECIPIENT
+  MESSAGE_REJECTED
+  TIMEOUT
+  TEMPORARY_PROVIDER_FAILURE
+}
+
+model User {
+  id               String            @id @default(uuid()) @db.Uuid
+  phoneE164        String            @unique @db.VarChar(16)
+  phoneConfirmedAt DateTime          @db.Timestamptz(3)
+  status           UserStatus        @default(ACTIVE)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+  legalAcceptances LegalAcceptance[]
+  sessions         UserSession[]
+
+  @@index([status, id])
+}
+
+model LegalDocument {
+  id               String            @id @default(uuid()) @db.Uuid
+  kind             LegalDocumentKind
+  version          String            @db.VarChar(64)
+  locale           String            @db.VarChar(16)
+  title            String            @db.VarChar(200)
+  content          String
+  contentSha256    String            @db.Char(64)
+  mandatory        Boolean
+  isCurrent        Boolean
+  publishedAt      DateTime          @db.Timestamptz(3)
+  effectiveAt      DateTime          @db.Timestamptz(3)
+  retiredAt        DateTime?         @db.Timestamptz(3)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  legalAcceptances LegalAcceptance[]
+
+  @@unique([kind, version, locale])
+  @@index([mandatory, isCurrent, locale])
+}
+
+model LegalAcceptance {
+  id                      String        @id @default(uuid()) @db.Uuid
+  userId                  String        @db.Uuid
+  legalDocumentId         String        @db.Uuid
+  acceptedAt              DateTime      @default(now()) @db.Timestamptz(3)
+  registrationFlowId      String        @db.Uuid
+  ipFingerprint           String?       @db.Char(64)
+  installationFingerprint String?       @db.Char(64)
+  userAgentFamily         String?       @db.VarChar(100)
+  user                    User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  legalDocument           LegalDocument @relation(fields: [legalDocumentId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, legalDocumentId])
+  @@index([userId, acceptedAt(sort: Desc)])
+}
+
+model UserSession {
+  id                      String                @id @default(uuid()) @db.Uuid
+  userId                  String                @db.Uuid
+  familyId                String                @unique @db.Uuid
+  installationFingerprint String                @db.Char(64)
+  creationKeyDigest       String                @unique @db.Char(64)
+  status                  UserSessionStatus     @default(ACTIVE)
+  expiresAt               DateTime              @db.Timestamptz(3)
+  lastUsedAt              DateTime?             @db.Timestamptz(3)
+  revokedAt               DateTime?             @db.Timestamptz(3)
+  revokeReason            SessionRevokeReason?
+  replayDetectedAt        DateTime?             @db.Timestamptz(3)
+  createdAt               DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime              @updatedAt @db.Timestamptz(3)
+  user                    User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  refreshTokens           SessionRefreshToken[]
+
+  @@index([userId, status])
+  @@index([expiresAt, status])
+}
+
+model SessionRefreshToken {
+  id           String               @id @default(uuid()) @db.Uuid
+  sessionId    String               @db.Uuid
+  tokenDigest  String               @unique @db.Char(64)
+  generation   Int
+  status       RefreshTokenStatus   @default(ACTIVE)
+  issuedAt     DateTime             @default(now()) @db.Timestamptz(3)
+  usedAt       DateTime?            @db.Timestamptz(3)
+  expiresAt    DateTime             @db.Timestamptz(3)
+  replacedById String?              @unique @db.Uuid
+  session      UserSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  replacedBy   SessionRefreshToken? @relation("RefreshTokenReplacement", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces     SessionRefreshToken? @relation("RefreshTokenReplacement")
+
+  @@unique([sessionId, generation])
+  @@index([expiresAt, status])
+}
+
+model SmsDelivery {
+  id                String              @id @default(uuid()) @db.Uuid
+  challengeId       String              @unique @db.Uuid
+  provider          SmsProviderKind
+  providerMessageId String?             @db.VarChar(255)
+  phoneFingerprint  String              @db.Char(64)
+  status            SmsDeliveryStatus   @default(PREPARED)
+  failureCategory   SmsFailureCategory?
+  requestedAt       DateTime            @db.Timestamptz(3)
+  acceptedAt        DateTime?           @db.Timestamptz(3)
+  lastReceiptAt     DateTime?           @db.Timestamptz(3)
+  deliveredAt       DateTime?           @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
+
+  @@unique([provider, providerMessageId])
+  @@index([status, updatedAt])
+}

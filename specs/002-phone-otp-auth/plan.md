@@ -24,7 +24,7 @@ validate or apply it, create a referral relationship, or award a bonus.
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5.8, Node.js 24, React 19.1, React Native 0.81
+**Language/Version**: TypeScript 5.8, Node.js 24, React 19.1, React Native 0.81.5
 
 **Primary Dependencies**: NestJS 11, Expo SDK 54 with expo-dev-client, Prisma 6,
 node-redis 5, Zod, class-validator, Vitest 3; planned additions are
@@ -38,7 +38,8 @@ Prometheus registry because bootstrap has no metrics exporter
 
 **Storage**: PostgreSQL 17 for durable state; Redis 7 for OTP, registration
 authorization, locks, counters, and budgets; device Keychain/Keystore through
-Expo SecureStore
+Expo SecureStore; development-only Expo web stores only the refresh credential
+and its absolute expiry in browser localStorage
 
 **Testing**: Vitest unit, contract, integration, and concurrency tests;
 Supertest for HTTP; Docker Compose PostgreSQL and Redis; mocked HTTP server for
@@ -135,8 +136,8 @@ React Native render path
   -> MobX stores -> observer screens
 React Native command path
   -> screens -> typed FlowService commands
-  -> FlowService commands -> Promise API / SecureStore adapters
-  -> Promise API adapter -> NestJS REST/OpenAPI only
+  -> FlowService commands -> Observable API / SecureStore adapters
+  -> Observable API adapter -> NestJS REST/OpenAPI only
   -> FlowService results -> MobX store actions
 ```
 
@@ -193,10 +194,12 @@ apps/mobile/src/
 ```
 
 Bootstrap has no reusable mobile API client or navigation package yet. Add the
-smallest typed Promise-based `fetch` wrapper and native-stack navigation inside
-the existing mobile app; do not introduce a shared package. RxJS application
-services compose API and storage adapter calls without coupling those adapters
-to React or exposing streams as public screen props.
+smallest typed cold-Observable `fetch` wrapper and native-stack navigation
+inside the existing mobile app; do not introduce a shared package. Native
+Promise APIs such as `fetch` and SecureStore are confined to infrastructure
+adapters through `defer`/`from`. RxJS application services compose API and
+storage adapter streams without coupling those adapters to React or exposing
+streams as public screen props.
 
 ## Core Designs
 
@@ -365,9 +368,9 @@ against the purchased Orange bundle before activation.
   Screens use `observer` to read stores and invoke typed FlowService command
   methods. Screens never call APIs, SecureStore, internal store-transition
   actions, or RxJS subjects directly; subjects and subscriptions remain private
-  to their service. Services call Promise adapters and publish results through
-  store actions. Local React state is limited to ephemeral native-control state
-  that is not application state.
+  to their service. Services compose cold Observable adapters and publish
+  results through store actions. Local React state is limited to ephemeral
+  native-control state that is not application state.
 - `OtpFlowService` has phone/OTP authentication-flow scope and is disposed when
   that provider unmounts or the flow is replaced. `RegistrationFlowService` has
   registration/legal scope and is disposed when registration completes, is
@@ -381,8 +384,11 @@ against the purchased Orange bundle before activation.
   `autoComplete="sms-otp"` on Android and `textContentType="oneTimeCode"` on
   iOS. Server timestamps drive the resend countdown.
 - Legal renders exact current documents and requires every mandatory checkbox.
-- Refresh and registration credentials use Expo SecureStore. OTP is never
-  persisted. Access tokens and transient screen data remain in memory.
+- Native refresh and registration credentials use Expo SecureStore.
+  Development-only Expo web persists just the refresh credential and its
+  absolute expiry in an isolated localStorage key to support reload testing;
+  the adapter is rejected outside `__DEV__`. Web registration authorization,
+  OTP, access tokens, and transient screen data remain in memory.
 - Startup reads refresh, calls rotation once through a single-flight client,
   stores the new refresh before exposing authenticated state, and clears secure
   state on terminal refresh failure.
@@ -501,10 +507,10 @@ phone, installation, IP, message text, tokens, or provider payload.
 6. **Access/refresh sessions**: absolute 60-day session deadlines, JWT guards,
    opaque refresh rotation without lifetime extension, replay revocation,
    multi-device logout, cleanup, and integration tests.
-7. **React Native flow**: add typed Promise adapters, MobX stores, typed RxJS
-   FlowService command facades with private subjects, explicit per-flow/root
-   lifetimes, navigation, SecureStore, three mockup-guided screens,
-   restore/refresh single-flight, and store/reactive-flow tests.
+7. **React Native flow**: add typed cold-Observable adapters, MobX stores, typed
+   RxJS FlowService command facades with private subjects, explicit
+   per-flow/root lifetimes, navigation, SecureStore, three mockup-guided
+   screens, restore/refresh single-flight, and store/reactive-flow tests.
 8. **Observability and hardening**: redaction, stable exception mapping,
    Prometheus export, alert-ready budget threshold metrics, receipt feature
    flag, and dependency failure paths.

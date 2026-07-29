@@ -1,7 +1,7 @@
 {
   "name": "@kaynann/water-vending",
   "private": true,
-  "packageManager": "pnpm@10.15.1",
+  "packageManager": "pnpm@11.18.0",
   "engines": {
     "node": ">=24 <25"
   },
@@ -9,6 +9,8 @@
     "dev": "pnpm --parallel --filter @kaynann/api --filter @kaynann/mobile run dev",
     "dev:api": "pnpm --filter @kaynann/api dev",
     "dev:mobile": "pnpm --filter @kaynann/mobile dev",
+    "dev:mobile:clear": "pnpm --filter @kaynann/mobile dev:clear",
+    "dev:mobile:web": "pnpm --filter @kaynann/mobile dev:web",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "pnpm --recursive --if-present test",
@@ -18,6 +20,7 @@
     "services:down": "docker compose -f infra/compose.yaml down",
     "db:migrate": "node scripts/db-migrate.mjs",
     "verify:start": "node scripts/verify-startup.mjs",
+    "verify:phone-auth-performance": "pnpm build:api && node scripts/verify-phone-auth-performance.mjs",
     "mobile:doctor": "node scripts/mobile-doctor.mjs",
     "mobile:prebuild": "pnpm --filter @kaynann/mobile prebuild",
     "check:env": "node scripts/check-env-example.mjs",

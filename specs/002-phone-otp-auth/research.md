@@ -226,6 +226,10 @@ SecureStore, React Native Safe Area Context, React Navigation/native-stack, and
 other native-only modules used by the authentication flow. Prove the harness
 before feature component tests with a minimal
 `apps/mobile/__tests__/test-harness.test.tsx` render and interaction smoke test.
+For development-only Expo web, persist only the refresh credential and its
+absolute expiry in an isolated localStorage key so browser reloads can exercise
+session restoration. The application rejects this adapter outside `__DEV__`;
+web registration authorization and access tokens remain memory-only.
 
 **Rationale**: SecureStore encrypts Android values with Keystore and uses iOS
 Keychain and is compatible with Expo config plugins
@@ -240,10 +244,14 @@ Expo recommends `@testing-library/react-native` for React Native component tests
 and explicitly deprecates `react-test-renderer` for React 19+
 ([Expo unit testing](https://docs.expo.dev/develop/unit-testing/)).
 
-**Alternatives considered**: AsyncStorage, `react-native-keychain`, and Expo
-Router. AsyncStorage is insecure; keychain adds a less Expo-native dependency;
-Router would restructure the bootstrap application. Jest with `jest-expo` would
-duplicate the Vitest infrastructure selected in bootstrap.
+**Alternatives considered**: AsyncStorage, `react-native-keychain`, Expo Router,
+and memory-only development-web refresh storage. AsyncStorage is insecure;
+keychain adds a less Expo-native dependency; Router would restructure the
+bootstrap application. Memory-only web storage prevents realistic reload
+testing, while the accepted localStorage exception is explicitly restricted to
+local development and never stores access or registration credentials. Jest
+with `jest-expo` would duplicate the Vitest infrastructure selected in
+bootstrap.
 
 ### Mobile reactive state and asynchronous orchestration
 
@@ -264,16 +272,19 @@ to application services that coordinate asynchronous flows requiring
 cancellation, concurrency policy, server-time timers, retry policy, or
 composition of event sources.
 
-The typed `fetch` client and SecureStore wrappers remain Promise-based adapters
-without React or RxJS ownership. The command path is
-`Screen -> typed FlowService command -> Promise adapter -> store action`; the
+The typed `fetch` client exposes cold `Observable` adapters without React or
+MobX ownership. SecureStore adapters also expose `Observable` operations while
+confining unavoidable native Promise calls to the adapter boundary through
+`defer`/`from`. The command path is
+`Screen -> typed FlowService command -> Observable adapter -> store action`; the
 render path is `MobX store -> observer screen`. A typed composition context
 provides `{ store, commands }` references. Screens do not call APIs,
 SecureStore, internal store-transition actions, or RxJS subjects. Reactive
-services adapt Promise calls with `defer`/`from`, update MobX only through store
+services compose adapter streams directly, update MobX only through store
 actions, keep subjects and subscriptions private, and expose an idempotent
-`dispose()`. `exhaustMap` suppresses duplicate submissions while a request is
-active; a resettable shared stream provides refresh single-flight;
+`dispose()`. HTTP streams are cold, start on subscription, and abort native
+requests on unsubscribe. `exhaustMap` suppresses duplicate submissions while a
+request is active; a resettable shared stream provides refresh single-flight;
 deterministic timers derive countdown updates from server timestamps. RxJS
 never automatically retries OTP sends or another side-effecting mutation unless
 the API operation is idempotent and retains the same idempotency key.

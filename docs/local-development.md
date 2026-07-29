@@ -11,7 +11,7 @@
 
 - `pnpm 10.15.1` workspace with one root lockfile.
 - Node.js `24.x LTS`, pinned by `.nvmrc` and the root `engines` field.
-- Expo SDK 54 with React Native 0.81 and `expo-dev-client`; native projects are
+- Expo SDK 54 with React Native 0.81.5 and `expo-dev-client`; native projects are
   generated through Expo prebuild/CNG when required.
 - NestJS 11 API with Prisma 6 and committed, migration-first PostgreSQL schema.
 - Vitest 3 for API unit/integration smoke tests and mobile JavaScript tests.
@@ -45,6 +45,7 @@ private keys, or certificates to the example file.
 ```sh
 pnpm dev:api
 pnpm dev:mobile
+pnpm dev:mobile:web
 pnpm lint
 pnpm typecheck
 pnpm test
@@ -60,6 +61,27 @@ The local services are exposed on PostgreSQL `5432`, Redis `6379`, and MQTT
 
 The root `db:migrate` wrapper loads the root `.env` and applies committed Prisma
 migrations explicitly. It does not use automatic schema synchronization.
+
+### Development-Only Web Debugging
+
+Use the browser target only for local UI and flow debugging:
+
+```sh
+pnpm dev:api
+pnpm dev:mobile:web
+```
+
+The `dev:mobile:web` command sets `APP_ENV=development` and explicitly enables
+the Expo web platform. Normal mobile development and JavaScript export commands
+keep the supported platform list restricted to iOS and Android. The API accepts
+browser requests from loopback origins only when its `APP_ENV` is
+`development`; staging and production do not enable this CORS policy.
+
+Browser auth state uses volatile in-memory storage because `expo-secure-store`
+does not provide equivalent secure web storage. A page reload therefore clears
+the installation ID and registration authorization and may require restarting
+the OTP flow. Web mode is not a production target and must not be used to
+validate native secure-storage persistence.
 
 ## CI-Equivalent Validation
 

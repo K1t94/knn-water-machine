@@ -276,6 +276,8 @@ paths:
           description: Known, duplicate, late, or unknown well-formed event acknowledged
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Invalid callback transport or source
         '404':
           description: Callback feature disabled
 components:

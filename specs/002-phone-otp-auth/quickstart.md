@@ -186,13 +186,75 @@ and component-flow suites named in `tasks.md`. Verify that:
 - disposing the phone/OTP scope, registration/legal scope, and application-root
   scope independently terminates every subscription and timer owned by that
   scope;
-- screens invoke typed FlowService commands, services call Promise adapters,
-  and only service results invoke store actions;
+- screens invoke typed FlowService commands, services compose cold Observable
+  adapters, and only service results invoke store actions;
 - no screen prop exposes an RxJS subject and no unsafe mutation receives an
   automatic retry.
 
 Do not invent these scripts if implementation chooses different existing Vitest
 filters; tasks must bind each command to the final package scripts.
+
+## Phase 8 Local Validation Report
+
+Executed on 2026-08-01 against local PostgreSQL and Redis. Live Orange
+credentials were not used and are not required for these results.
+
+### Completed automated checks
+
+- `pnpm check:env`: passed.
+- `pnpm test` with `RUN_REDIS_INTEGRATION=1` and
+  `RUN_POSTGRES_INTEGRATION=1`: API 52 files/193 tests passed; mobile 16
+  files/72 tests passed.
+- The mobile run collected `mobx.config.spec.ts`, `otp.store.spec.ts`,
+  `otp-flow.service.spec.ts`, `registration.store.spec.ts`,
+  `registration-flow.service.spec.ts`, `session.store.spec.ts`,
+  `session-flow.service.spec.ts`, and `phone-auth-flow.test.tsx`.
+- `pnpm lint`: passed.
+- `pnpm build:api`: passed.
+- `pnpm build:mobile:js`: passed and produced the Expo web export.
+- `pnpm verify:start`: passed; PostgreSQL, Redis, and API health checks were
+  healthy.
+- `pnpm --filter @kaynann/api openapi:check`: passed.
+- `pnpm --filter @kaynann/mobile typecheck`: passed.
+
+The full fake-provider integration journey, dependency-failure recovery,
+OpenAPI parity, pending-promo scope, sensitive-data regressions, and React
+Native component flows passed as part of the suites above.
+
+### Performance result
+
+`pnpm verify:phone-auth-performance` passed with no request errors:
+
+| Operation | Samples | Concurrency | p50 | p95 | Limit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| OTP request | 200 | 10 | 28.14 ms | 48.61 ms | 500 ms |
+| OTP verification | 200 | 10 | 19.58 ms | 33.69 ms | 500 ms |
+| Session refresh | 500 | 20 | 77.34 ms | 117.82 ms | 300 ms |
+
+The harness starts the real NestJS application with fake SMS, uses local
+PostgreSQL and Redis, creates independent identities/sessions, and cleans its
+durable test records after execution.
+
+### Open validation items
+
+- `pnpm typecheck` is blocked by 11 existing strict TypeScript errors in
+  `apps/api/src/common/redacted-exception.filter.ts`,
+  `apps/api/src/sessions/application/session-rotation.integration-spec.ts`,
+  `apps/api/src/sessions/application/testing/postgres-session.fixture.ts`,
+  `apps/api/src/sms/infrastructure/orange/orange-error-mapper.ts`,
+  `apps/api/src/sms/infrastructure/orange/orange-oauth-client.ts`,
+  `apps/api/src/sms/infrastructure/orange/orange-sms.provider.ts`,
+  `apps/api/src/sms/infrastructure/orange/testing/orange-mock-server.ts`, and
+  `apps/api/src/sms/sms.module.ts`. The failures concern
+  `exactOptionalPropertyTypes` and Node/DOM `AbortSignal` compatibility. Per
+  T124, no unrelated implementation remediation was applied automatically.
+- The three reference mockups were inspected, but a representative native
+  iOS/Android screenshot comparison was not executed. T123 remains open and no
+  visual implementation changes were made during validation.
+- Automated functional scenarios passed, but the complete manual-local device
+  scenario sweep has not been executed. T125 remains open.
+- The moderated usability study with 20 eligible independent participants was
+  not run. T127 remains open and cannot be replaced by an automated test.
 
 ## Mocked Orange Acceptance
 

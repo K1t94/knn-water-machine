@@ -1,0 +1,1177 @@
+{
+  "components": {
+    "schemas": {
+      "AuthErrorBodyDto": {
+        "properties": {
+          "code": {
+            "enum": [
+              "INVALID_PHONE",
+              "UNSUPPORTED_COUNTRY",
+              "RATE_LIMITED",
+              "SMS_BUDGET_EXHAUSTED",
+              "SMS_CONFIGURATION_ERROR",
+              "SMS_AUTH_FAILED",
+              "SMS_BALANCE_EXHAUSTED",
+              "SMS_PROVIDER_RATE_LIMITED",
+              "SMS_INVALID_RECIPIENT",
+              "SMS_REJECTED",
+              "SMS_TIMEOUT",
+              "SMS_TEMPORARILY_UNAVAILABLE",
+              "OTP_INVALID",
+              "OTP_EXPIRED",
+              "OTP_USED",
+              "OTP_ATTEMPTS_EXHAUSTED",
+              "REGISTRATION_AUTH_INVALID",
+              "REGISTRATION_AUTH_EXPIRED",
+              "LEGAL_VERSION_STALE",
+              "DEPENDENCY_UNAVAILABLE",
+              "SESSION_CREATION_FAILED",
+              "REFRESH_INVALID",
+              "REFRESH_EXPIRED",
+              "REFRESH_REPLAYED"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "retryAfterSeconds": {
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "requestId"
+        ],
+        "type": "object"
+      },
+      "AuthErrorResponseDto": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/AuthErrorBodyDto"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "CurrentLegalSetDto": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/LegalDocumentDto"
+            },
+            "type": "array"
+          },
+          "setVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setVersion",
+          "documents"
+        ],
+        "type": "object"
+      },
+      "LegalAcceptanceDto": {
+        "properties": {
+          "acceptedDocumentIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          },
+          "setVersion": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "setVersion",
+          "acceptedDocumentIds",
+          "installationId"
+        ],
+        "type": "object"
+      },
+      "LegalDocumentDto": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "contentSha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "TERMS_OF_SERVICE",
+              "PRIVACY_POLICY"
+            ],
+            "type": "string"
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "version",
+          "title",
+          "content",
+          "mandatory",
+          "contentSha256"
+        ],
+        "type": "object"
+      },
+      "OrangeDeliveryInfoDto": {
+        "properties": {
+          "address": {
+            "example": "tel:+221771234567",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "deliveryStatus": {
+            "enum": [
+              "DeliveredToNetwork",
+              "DeliveryUncertain",
+              "DeliveryImpossible",
+              "MessageWaiting",
+              "DeliveredToTerminal"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "deliveryStatus"
+        ],
+        "type": "object"
+      },
+      "OrangeDeliveryReceiptDto": {
+        "properties": {
+          "callbackData": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "deliveryInfo": {
+            "$ref": "#/components/schemas/OrangeDeliveryInfoDto"
+          }
+        },
+        "required": [
+          "callbackData",
+          "deliveryInfo"
+        ],
+        "type": "object"
+      },
+      "OrangeDeliveryReceiptEnvelopeDto": {
+        "properties": {
+          "deliveryInfoNotification": {
+            "$ref": "#/components/schemas/OrangeDeliveryReceiptDto"
+          }
+        },
+        "required": [
+          "deliveryInfoNotification"
+        ],
+        "type": "object"
+      },
+      "OtpIssuedResponseDto": {
+        "properties": {
+          "challengeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "delivery": {
+            "enum": [
+              "accepted",
+              "uncertain"
+            ],
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "resendAvailableAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challengeId",
+          "expiresAt",
+          "resendAvailableAt",
+          "delivery"
+        ],
+        "type": "object"
+      },
+      "OtpRequestDto": {
+        "properties": {
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          },
+          "pendingPromoCode": {
+            "maxLength": 64,
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "example": "+221771234567",
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone",
+          "installationId"
+        ],
+        "type": "object"
+      },
+      "OtpResendDto": {
+        "properties": {
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          },
+          "pendingPromoCode": {
+            "maxLength": 64,
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "example": "+221771234567",
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone",
+          "installationId"
+        ],
+        "type": "object"
+      },
+      "OtpVerificationDto": {
+        "properties": {
+          "challengeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "code": {
+            "pattern": "^\\d{6}$",
+            "type": "string",
+            "writeOnly": true
+          },
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          },
+          "pendingPromoCode": {
+            "maxLength": 64,
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "example": "+221771234567",
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "phone",
+          "installationId",
+          "challengeId",
+          "code"
+        ],
+        "type": "object"
+      },
+      "OtpVerifiedResponseDto": {
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nextStep": {
+            "enum": [
+              "authenticated",
+              "completeRegistration",
+              "acceptLegal"
+            ],
+            "type": "string"
+          },
+          "registrationAuthorization": {
+            "maxLength": 512,
+            "minLength": 32,
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionCredentialsDto"
+          }
+        },
+        "required": [
+          "nextStep"
+        ],
+        "type": "object"
+      },
+      "RefreshSessionDto": {
+        "properties": {
+          "refreshToken": {
+            "maxLength": 512,
+            "minLength": 32,
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "refreshToken"
+        ],
+        "type": "object"
+      },
+      "RegistrationCompletionDto": {
+        "properties": {
+          "acceptedDocumentIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "installationId": {
+            "maxLength": 128,
+            "minLength": 16,
+            "type": "string"
+          },
+          "setVersion": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "setVersion",
+          "acceptedDocumentIds",
+          "installationId"
+        ],
+        "type": "object"
+      },
+      "RegistrationContextDto": {
+        "properties": {
+          "pendingPromoCode": {
+            "maxLength": 64,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SessionCredentialsDto": {
+        "properties": {
+          "accessExpiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "accessToken": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "refreshExpiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "refreshToken": {
+            "minLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "accessToken",
+          "accessExpiresAt",
+          "refreshToken",
+          "refreshExpiresAt"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "AccessBearer": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "RegistrationAuth": {
+        "description": "Short-lived authorization that never grants application access.",
+        "in": "header",
+        "name": "X-Registration-Authorization",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "contact": {},
+    "description": "Generated NestJS contract snapshot for drift detection.",
+    "title": "KAYNANN Phone OTP Authentication API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "HealthController_getHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/v1/auth/legal/acceptances": {
+      "post": {
+        "operationId": "LegalAcceptanceController_accept",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegalAcceptanceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCredentialsDto"
+                }
+              }
+            },
+            "description": "Legal compliance restored and session created",
+            "headers": {
+              "Cache-Control": {
+                "description": "Sensitive credential response must not be cached",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "security": [
+          {
+            "RegistrationAuth": []
+          }
+        ],
+        "summary": "Accept new legal versions and start a session",
+        "tags": [
+          "auth",
+          "legal"
+        ]
+      }
+    },
+    "/v1/auth/otp/requests": {
+      "post": {
+        "operationId": "AuthController_request",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtpIssuedResponseDto"
+                }
+              }
+            },
+            "description": "SMS accepted or delivery outcome uncertain"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "summary": "Request the first OTP for a Senegal phone",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/otp/requests/{challengeId}/resend": {
+      "post": {
+        "operationId": "AuthController_resend",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "challengeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpResendDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtpIssuedResponseDto"
+                }
+              }
+            },
+            "description": "New challenge accepted; previous challenge is invalid"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "summary": "Replace an active OTP after cooldown",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/otp/verifications": {
+      "post": {
+        "operationId": "AuthController_verify",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpVerificationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtpVerifiedResponseDto"
+                }
+              }
+            },
+            "description": "Authenticated or scoped legal completion required",
+            "headers": {
+              "Cache-Control": {
+                "description": "Sensitive credential response must not be cached",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "summary": "Verify one OTP and choose the next auth step",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/registration/complete": {
+      "post": {
+        "operationId": "RegistrationController_complete",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 8,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationCompletionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCredentialsDto"
+                }
+              }
+            },
+            "description": "Registration completed or same-key result recovered",
+            "headers": {
+              "Cache-Control": {
+                "description": "Sensitive credential response must not be cached",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "security": [
+          {
+            "RegistrationAuth": []
+          }
+        ],
+        "summary": "Atomically register, accept legal documents, and start a session",
+        "tags": [
+          "auth",
+          "legal"
+        ]
+      }
+    },
+    "/v1/auth/registration/context": {
+      "patch": {
+        "operationId": "RegistrationController_updateContext",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationContextDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Context updated without referral side effects"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "security": [
+          {
+            "RegistrationAuth": []
+          }
+        ],
+        "summary": "Replace or remove pending promo context without applying it",
+        "tags": [
+          "auth",
+          "legal"
+        ]
+      }
+    },
+    "/v1/auth/sessions/current": {
+      "delete": {
+        "operationId": "SessionsController_logout",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "Session revoked or already revoked"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "security": [
+          {
+            "AccessBearer": []
+          }
+        ],
+        "summary": "Revoke only the current device session",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/v1/auth/sessions/refresh": {
+      "post": {
+        "operationId": "SessionsController_refresh",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshSessionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCredentialsDto"
+                }
+              }
+            },
+            "description": "Rotated credentials with unchanged absolute session expiry",
+            "headers": {
+              "Cache-Control": {
+                "description": "Sensitive credential response must not be cached",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "summary": "Rotate refresh credential and issue access",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/v1/integrations/orange/sms/delivery-receipts": {
+      "post": {
+        "operationId": "OrangeDeliveryReceiptController_receive",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrangeDeliveryReceiptEnvelopeDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Well-formed event acknowledged"
+          },
+          "400": {
+            "description": "Invalid callback schema"
+          },
+          "403": {
+            "description": "Invalid callback transport or source"
+          },
+          "404": {
+            "description": "Callback feature disabled"
+          }
+        },
+        "summary": "Receive an optional Orange delivery status",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/v1/legal/documents/current": {
+      "get": {
+        "operationId": "LegalController_current",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentLegalSetDto"
+                }
+              }
+            },
+            "description": "Current mandatory documents"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponseDto"
+                }
+              }
+            },
+            "description": "Stable product error without dependency details"
+          }
+        },
+        "security": [
+          {
+            "RegistrationAuth": []
+          }
+        ],
+        "summary": "Get exact current mandatory legal documents",
+        "tags": [
+          "legal"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "tags": []
+}

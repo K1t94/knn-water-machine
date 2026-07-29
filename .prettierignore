@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+.expo/
+ios/
+android/
+coverage/
+pnpm-lock.yaml
+specs/**/contracts/openapi.generated.json

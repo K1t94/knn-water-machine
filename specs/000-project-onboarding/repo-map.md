@@ -12,7 +12,9 @@
 - Data: PostgreSQL 17, Prisma 6 migrations.
 - Local messaging: Redis 7 and Mosquitto 2 MQTT emulator.
 - Tooling: pnpm 10.15.1 workspace; Vitest 3; ESLint 9; Prettier 3.
-- Scope: connectivity/bootstrap only; no OTP, payments, balance, dispensing, referrals, or external providers.
+- Current implemented scope: bootstrap plus Phone OTP Authentication through
+  OTP, fake SMS delivery, legal-gated registration, access/refresh sessions,
+  refresh rotation/replay detection, and mobile session restoration.
 
 ## Top-Level Layout
 
@@ -29,9 +31,17 @@
 ├── apps/
 │   ├── mobile/                       # Expo app; manifest and entry: apps/mobile/
 │   │   ├── index.ts                  # Expo registration entry point
-│   │   ├── src/App.tsx               # baseline screen
-│   │   └── __tests__/App.test.tsx    # mobile smoke test
+│   │   ├── src/App.tsx               # mobile composition and navigation entry
+│   │   ├── src/auth/                 # MobX/RxJS OTP and registration flows
+│   │   ├── src/api/                  # cold Observable HTTP adapters
+│   │   └── __tests__/                # mobile smoke/test harness
 │   └── api/                          # NestJS API; manifest and entry: apps/api/
+│       ├── src/auth/                 # OTP routing and registration completion
+│       ├── src/otp/                  # Senegal parsing and Redis OTP state machine
+│       ├── src/sms/                  # provider-neutral SMS port and adapters
+│       ├── src/legal/                # current documents and acceptances
+│       ├── src/sessions/             # session credentials and persistence
+│       ├── src/users/                # user persistence
 │       ├── src/config/               # validated env loading/redacted diagnostics
 │       ├── src/health/               # bounded dependency probes and GET /health
 │       ├── test/                     # API contract and startup smoke tests
@@ -52,17 +62,30 @@
 - `specs/<feature>/spec.md` — продуктовые требования конкретной feature.
 - `specs/<feature>/plan.md` — утверждённое техническое решение feature.
 - `specs/<feature>/tasks.md` — порядок реализации feature.
-- `apps/mobile/index.ts` — Expo registration entry point; `apps/mobile/src/App.tsx` — baseline screen.
+- `apps/mobile/index.ts` — Expo registration entry point;
+  `apps/mobile/src/App.tsx` — auth composition and navigation entry.
+- `apps/mobile/src/auth/` — presentation-oriented screens, MobX state, and
+  private RxJS application orchestration.
+- `apps/mobile/src/api/auth-api.ts` — cold Observable authentication API
+  boundary.
 - `apps/api/src/main.ts` — NestJS HTTP API bootstrap and lifecycle.
 - `apps/api/src/app.module.ts` — backend composition root.
+- `apps/api/src/auth/`, `apps/api/src/otp/`, `apps/api/src/sessions/`,
+  `apps/api/src/legal/`, and `apps/api/src/sms/` — Phone OTP Authentication
+  application and infrastructure boundaries.
 - `apps/api/src/health/health.controller.ts` — public `GET /health`, 200/503 contract.
 - `apps/api/prisma/schema.prisma` — Prisma datasource/generator; migrations in `apps/api/prisma/migrations/`.
 - `infra/compose.yaml` — PostgreSQL, Redis, Mosquitto services and healthchecks.
 - `infra/mosquitto/mosquitto.conf` — anonymous local MQTT listener only; no vending topics.
 
+## Feature Areas
+
+- `auth`, `otp`, `sessions`, `sms`, `users`, `legal` — текущая feature
+  регистрации и входа по телефону. Orange остаётся provider adapter и не
+  импортируется бизнес-логикой.
+
 ## Future Feature Areas
 
-- `auth`, `users`, `legal` — телефон, OTP, токены, завершение регистрации только после принятия актуальных legal-документов.
 - `machines`, `map`, `qr` — перечень автоматов, статусы, геопоиск, QR/manual machine ID.
 - `wallet`, `wallet-transactions` — баланс в целых миллилитрах, аудит, бонусные и купленные литры, запрет отрицательного баланса.
 - `package-catalog`, `payments` — пакеты 20/50/100 л, Wave/Orange Money, подписанные webhooks и идемпотентность.
@@ -74,11 +97,16 @@
 
 ## Test Layout
 
+- `apps/api/src/**/**.spec.ts` — unit and module-local integration tests.
+- `apps/api/test/*contract-spec.ts` — public HTTP contract tests.
 - `apps/api/test/health.e2e-spec.ts` — public health contract tests.
 - `apps/api/test/startup.smoke-spec.ts` — configuration, redaction, and bounded startup smoke tests.
-- `apps/mobile/__tests__/App.test.tsx` — baseline Expo render test.
+- `apps/mobile/src/**/*.spec.{ts,tsx}` — MobX store, RxJS flow, storage, and API tests.
+- `apps/mobile/__tests__/` — Expo render and test-harness tests.
 
-These are future product areas, not implemented by the bootstrap. Обязательные сценарии будущих feature: OTP + legal; повторный webhook; конкурентное списание; таймаут кнопки; недовыдача; повтор MQTT-события; `UNKNOWN/NO_CONNECT`; реферальный бонус и ограничения промокода.
+Обязательные сценарии будущих feature вне текущей Phone OTP Authentication:
+повторный webhook; конкурентное списание; таймаут кнопки; недовыдача; повтор
+MQTT-события; `UNKNOWN/NO_CONNECT`; реферальный бонус и ограничения промокода.
 
 ## Validation Commands
 

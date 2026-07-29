@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import mqtt from 'mqtt';
-import { createClient } from 'redis';
 
 import { loadEnv } from '../config/env';
+import { RedisService } from '../infrastructure/redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type DependencyName = 'postgres' | 'redis' | 'mqtt';
@@ -21,7 +21,10 @@ const PROBE_TIMEOUT_MS = 1500;
 export class DependencyChecksService {
   private readonly env = loadEnv();
 
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RedisService) private readonly redis: RedisService,
+  ) {}
 
   async checkAll(): Promise<DependencyStatuses> {
     const [postgres, redis, mqttStatus] = await Promise.all([
@@ -58,20 +61,7 @@ export class DependencyChecksService {
   }
 
   private async checkRedis(): Promise<void> {
-    const client = createClient({
-      url: this.env.REDIS_URL,
-      socket: { connectTimeout: PROBE_TIMEOUT_MS },
-    });
-    client.on('error', () => undefined);
-
-    try {
-      await client.connect();
-      await client.ping();
-    } finally {
-      if (client.isOpen) {
-        await client.quit().catch(() => undefined);
-      }
-    }
+    await this.redis.ping();
   }
 
   private async checkMqtt(): Promise<void> {

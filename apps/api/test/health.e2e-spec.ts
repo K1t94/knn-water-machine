@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DependencyChecksService, DependencyStatus } from '../src/health/dependency-checks.service';
 import { HealthModule } from '../src/health/health.module';
+import { RedisService } from '../src/infrastructure/redis/redis.service';
 
 describe('GET /health', () => {
   let app: INestApplication;
@@ -17,6 +18,8 @@ describe('GET /health', () => {
     })
       .overrideProvider(DependencyChecksService)
       .useValue(checks)
+      .overrideProvider(RedisService)
+      .useValue({ ping: vi.fn() })
       .compile();
 
     app = module.createNestApplication();

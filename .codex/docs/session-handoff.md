@@ -5,8 +5,8 @@ conversation.
 
 ## Current Goal
 
-- `project-bootstrap` завершен: поддерживать готовую базу monorepo и перейти к
-  следующей feature после ее явного определения.
+- Реализовать `002-phone-otp-auth` по утвержденным `spec.md`, `plan.md` и
+  `tasks.md`; Phase 1-5 завершены.
 
 ## Current Branch
 
@@ -14,55 +14,61 @@ conversation.
 
 ## Current Feature Directory
 
-- `specs/001-project-bootstrap`
+- `specs/002-phone-otp-auth`
 
 ## Done
 
-- Все задачи `T001-T044` выполнены и отмечены в `tasks.md`.
-- Создан monorepo на pnpm с Node.js 24.x, Expo React Native mobile app и
-  NestJS API.
-- Настроены PostgreSQL, Redis и локальный Mosquitto MQTT emulator через
-  `infra/compose.yaml`.
-- Выбраны Prisma ORM и Vitest; добавлены lint, typecheck, test и build-команды.
-- Добавлены безопасный `.env.example`, Prisma migration flow, healthcheck и
-  `verify:start` с лимитом ответа `/health` менее 5 секунд.
-- Обновлены onboarding repo map, local development docs и bootstrap quickstart.
-- Бизнес-функции, OTP, платежи, баланс, выдача воды и рефералы не реализованы.
+- Задачи Phase 1-5 (`T001-T086`) выполнены и отмечены в `tasks.md`.
+- Реализованы OTP challenge, Redis atomicity и anti-abuse из предыдущих фаз.
+- Добавлены заменяемый `SmsProvider` и `FakeSmsProvider`.
+- Реализованы registration authorization, legal version validation,
+  атомарное создание пользователя, legal acceptance и initial session.
+- Pending promo переносится только как неприменяемый registration context.
+- Mobile registration flow использует MobX для состояния, RxJS для
+  orchestration и SecureStore для registration authorization.
+- Реализованы access/refresh sessions, rotation lineage, replay detection,
+  отдельные device sessions и logout текущего устройства.
+- Mobile session flow восстанавливает сессию через SecureStore, автоматически
+  ротирует refresh token и хранит access token только в памяти.
+- OpenAPI обновлен для OTP, registration, legal и session endpoints.
 
 ## In Progress
 
-- Нет активной реализации; следующую feature нужно сначала описать через
-  Spec Kit.
+- Нет незавершенных задач Phase 5.
 
 ## Blocked
 
-- Нет блокирующих проблем для API и JavaScript-проверок.
+- Нет блокеров. Live Orange credentials не требуются до отдельного
+  post-credential acceptance этапа.
 
 ## Next Single Diff
 
-- Определить следующую MVP feature и обновить соответствующие `spec.md`,
-  `plan.md` и `tasks.md`; EAS Build и бизнес-функции остаются отдельными
-  будущими изменениями.
+- Начать Phase 6 с `OrangeSmsProvider`, OAuth token cache и mock HTTP API
+  (`T087-T103`). Live credentials для этого не требуются.
 
 ## Validation Already Run
 
-- `pnpm install --frozen-lockfile`
 - `pnpm lint`
 - `pnpm typecheck`
-- `pnpm test` (API: 8/8, mobile: 1/1)
 - `pnpm build:api`
 - `pnpm build:mobile:js`
-- `pnpm db:migrate`
-- `pnpm check:env`
-- `pnpm check:repo`
-- `pnpm verify:start` against the local Compose stack
-- `pnpm mobile:doctor` and `pnpm mobile:prebuild`
+- `pnpm --filter @kaynann/api test` (102 passed, 20 feature-gated skipped)
+- Redis registration integration (8/8 with `RUN_REDIS_INTEGRATION=1`)
+- PostgreSQL persistence constraints (6/6 against local Compose PostgreSQL)
+- Registration transaction/concurrency integration (7/7)
+- OTP and registration HTTP contracts (19/19)
+- `pnpm --filter @kaynann/mobile test` (65/65)
+- Phase 5 API session tests (23/23, включая PostgreSQL concurrency/replay)
+- Phase 5 mobile session tests (21/21)
+- `pnpm --filter @kaynann/api openapi:check`
 - `git diff --check`
 
 ## Validation Still Needed
 
-- Нет обязательных проверок для завершенного bootstrap.
-- При изменении окружения повторить `pnpm mobile:doctor` и `pnpm verify:start`.
+- Native visual acceptance of phone, OTP, legal, session restoration,
+  stale-legal routing and logout on iOS/Android remains a manual device check.
+- Live Orange OAuth, Sender Name, balance, delivery and DLR checks remain in
+  the post-credential phase.
 
 ## Files To Read On Resume
 
@@ -71,20 +77,16 @@ conversation.
 - `.codex/docs/ai-style-memory.md`
 - `.codex/docs/session-handoff.md`
 - `.specify/memory/constitution.md`
-- `specs/000-project-onboarding/repo-map.md`
-- `specs/001-project-bootstrap/spec.md`
-- `specs/001-project-bootstrap/plan.md`
-- `specs/001-project-bootstrap/tasks.md`
-- `specs/001-project-bootstrap/quickstart.md`
+- `specs/002-phone-otp-auth/spec.md`
+- `specs/002-phone-otp-auth/plan.md`
+- `specs/002-phone-otp-auth/tasks.md`
+- `specs/002-phone-otp-auth/data-model.md`
+- `specs/002-phone-otp-auth/research.md`
 - `package.json`
-- `docs/local-development.md`
 
 ## Notes
 
-- Репозиторий требует Node.js `>=24 <25`; текущая локальная shell-сессия ранее
-  показывала Node.js `22.18.0`, поэтому pnpm может выводить engine warning.
-- Native iOS/Android builds требуют локальных Xcode/CocoaPods или Android
-  SDK/adb; Expo JavaScript export работает без них. EAS Build пока не настроен
-  root-командами.
-- Локальный `.env` и состояние Docker-сервисов не являются частью репозитория;
-  production credentials не используются.
+- Не изменять пользовательское удаление
+  `docs/speckit-prompts/otpspecify-prompt.txt`.
+- Локальные PostgreSQL, Redis и MQTT контейнеры запущены; production
+  credentials не использовались.
