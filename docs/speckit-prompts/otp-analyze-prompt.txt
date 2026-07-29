@@ -1,0 +1,16 @@
+Проверь согласованность spec.md, plan.md и tasks.md для текущей OTP-фичи.
+
+Особое внимание удели:
+- покрытию всех functional requirements задачами;
+- отсутствию зависимости OTP-логики от Orange;
+- возможности замены SMS-провайдера;
+- запрету FakeSmsProvider в staging и production;
+- атомарности OTP verification и registration completion;
+- Redis TTL, cooldown и rate limits;
+- созданию пользователя только после OTP и legal acceptance;
+- refresh token rotation и replay detection;
+- поддержке pending promo code без реализации реферальной логики;
+- отсутствию live Orange credentials как блокера разработки;
+- отсутствию задач из других функциональных областей MVP.
+
+Не изменяй файлы автоматически. Сначала выдай отчёт о критичных, существенных и некритичных расхождениях.

@@ -1,0 +1,586 @@
+openapi: 3.0.3
+info:
+  title: KAYNANN Phone OTP Authentication API
+  version: 0.1.0
+  description: |
+    Feature contract for Senegal phone OTP, legal gating, and device sessions.
+    Orange-specific payloads are private and never exposed by this API.
+servers:
+  - url: /api
+tags:
+  - name: Auth
+  - name: Legal
+  - name: Sessions
+  - name: Integrations
+paths:
+  /v1/auth/otp/requests:
+    post:
+      tags: [Auth]
+      summary: Request the first OTP for a Senegal phone
+      operationId: requestOtp
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpRequest'
+      responses:
+        '202':
+          description: SMS accepted or delivery outcome uncertain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/auth/otp/requests/{challengeId}/resend:
+    post:
+      tags: [Auth]
+      summary: Replace an active OTP after cooldown
+      operationId: resendOtp
+      parameters:
+        - $ref: '#/components/parameters/ChallengeId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpResendRequest'
+      responses:
+        '202':
+          description: New challenge accepted; the previous challenge is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/auth/otp/verifications:
+    post:
+      tags: [Auth]
+      summary: Verify one OTP and choose the next auth step
+      operationId: verifyOtp
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpVerificationRequest'
+      responses:
+        '200':
+          description: Authenticated or scoped legal completion required
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpVerificationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/auth/registration/context:
+    patch:
+      tags: [Auth]
+      summary: Replace or remove pending promo context without applying it
+      operationId: updateRegistrationContext
+      security:
+        - RegistrationAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pendingPromoCode]
+              properties:
+                pendingPromoCode:
+                  nullable: true
+                  type: string
+                  maxLength: 64
+      responses:
+        '204':
+          description: Context updated; no referral side effect occurred
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/legal/documents/current:
+    get:
+      tags: [Legal]
+      summary: Get exact current mandatory legal documents
+      operationId: getCurrentLegalDocuments
+      security:
+        - RegistrationAuth: []
+        - AccessBearer: []
+      responses:
+        '200':
+          description: Current documents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documents, setVersion]
+                properties:
+                  setVersion:
+                    type: string
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LegalDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/auth/registration/complete:
+    post:
+      tags: [Auth, Legal]
+      summary: Atomically create a user, accept legal documents, and start session
+      operationId: completeRegistration
+      security:
+        - RegistrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LegalCompletionRequest'
+      responses:
+        '200':
+          description: Registration completed or same-key result recovered
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionCredentials'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/auth/legal/acceptances:
+    post:
+      tags: [Auth, Legal]
+      summary: Accept new legal versions for an existing confirmed user
+      operationId: acceptUpdatedLegal
+      security:
+        - RegistrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LegalCompletionRequest'
+      responses:
+        '200':
+          description: Legal compliance restored and device session created
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionCredentials'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/auth/sessions/refresh:
+    post:
+      tags: [Sessions]
+      summary: Rotate refresh credential and issue access
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+                  minLength: 32
+                  writeOnly: true
+      responses:
+        '200':
+          description: Rotated credentials with the unchanged absolute session expiry
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionCredentials'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/auth/sessions/current:
+    delete:
+      tags: [Sessions]
+      summary: Revoke only the access token's current device session
+      operationId: logoutCurrentSession
+      security:
+        - AccessBearer: []
+      responses:
+        '204':
+          description: Revoked or already revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/integrations/orange/sms/delivery-receipts:
+    post:
+      tags: [Integrations]
+      summary: Receive an optional Orange delivery status
+      operationId: receiveOrangeDeliveryReceipt
+      description: Disabled unless ORANGE_SMS_DR_ENABLED=true. Receipt is not OTP proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrangeDeliveryReceipt'
+      responses:
+        '200':
+          description: Known, duplicate, late, or unknown well-formed event acknowledged
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Callback feature disabled
+components:
+  headers:
+    NoStore:
+      description: Sensitive credential response must not be cached
+      schema:
+        type: string
+        enum: [no-store]
+  securitySchemes:
+    AccessBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    RegistrationAuth:
+      type: apiKey
+      in: header
+      name: X-Registration-Authorization
+      description: Short-lived opaque credential; never grants application access.
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 100
+    ChallengeId:
+      name: challengeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Invalid boundary input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Credential invalid, expired, revoked, or replayed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: OTP/legal/idempotency state conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Local abuse or budget limit
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unavailable:
+      description: Retryable provider or dependency failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    OtpRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, installationId]
+      properties:
+        phone:
+          type: string
+          maxLength: 32
+          example: "77 123 45 67"
+        installationId:
+          type: string
+          minLength: 16
+          maxLength: 128
+        pendingPromoCode:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: Opaque pending context; replaces the challenge value, or null removes it
+    OtpResendRequest:
+      type: object
+      additionalProperties: false
+      required: [phone, installationId]
+      properties:
+        phone:
+          type: string
+          maxLength: 32
+        installationId:
+          type: string
+          minLength: 16
+          maxLength: 128
+        pendingPromoCode:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: Opaque pending context for the replacement challenge; null removes it
+    OtpRequestResponse:
+      type: object
+      required: [challengeId, expiresAt, resendAvailableAt, delivery]
+      properties:
+        challengeId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+        resendAvailableAt:
+          type: string
+          format: date-time
+        delivery:
+          type: string
+          enum: [accepted, uncertain]
+    OtpVerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [challengeId, phone, code, installationId]
+      properties:
+        challengeId:
+          type: string
+          format: uuid
+        phone:
+          type: string
+          maxLength: 32
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+          writeOnly: true
+        installationId:
+          type: string
+          minLength: 16
+          maxLength: 128
+        pendingPromoCode:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: Latest opaque pending context copied after successful OTP; null removes it
+    OtpVerificationResponse:
+      oneOf:
+        - type: object
+          required: [nextStep, session]
+          properties:
+            nextStep:
+              type: string
+              enum: [authenticated]
+            session:
+              $ref: '#/components/schemas/SessionCredentials'
+        - type: object
+          required: [nextStep, registrationAuthorization, expiresAt]
+          properties:
+            nextStep:
+              type: string
+              enum: [completeRegistration, acceptLegal]
+            registrationAuthorization:
+              type: string
+              description: Sensitive response credential; clients and servers must not log it
+            expiresAt:
+              type: string
+              format: date-time
+    LegalDocument:
+      type: object
+      additionalProperties: false
+      required: [id, kind, version, title, content, mandatory, contentSha256]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [TERMS_OF_SERVICE, PRIVACY_POLICY]
+        version:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        mandatory:
+          type: boolean
+        contentSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+    LegalCompletionRequest:
+      type: object
+      additionalProperties: false
+      required: [setVersion, acceptedDocumentIds, installationId]
+      properties:
+        setVersion:
+          type: string
+        acceptedDocumentIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        installationId:
+          type: string
+          minLength: 16
+          maxLength: 128
+    SessionCredentials:
+      type: object
+      additionalProperties: false
+      required: [accessToken, accessExpiresAt, refreshToken, refreshExpiresAt]
+      properties:
+        accessToken:
+          type: string
+          description: Sensitive response credential kept in mobile memory and never logged
+        accessExpiresAt:
+          type: string
+          format: date-time
+          description: Access expiry, never later than the absolute session expiry
+        refreshToken:
+          type: string
+          description: Sensitive response credential stored only in platform secure storage
+        refreshExpiresAt:
+          type: string
+          format: date-time
+          description: Absolute device-session expiry, unchanged by refresh rotation
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, retryable, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_PHONE
+                - UNSUPPORTED_COUNTRY
+                - RATE_LIMITED
+                - SMS_BUDGET_EXHAUSTED
+                - SMS_CONFIGURATION_ERROR
+                - SMS_AUTH_FAILED
+                - SMS_BALANCE_EXHAUSTED
+                - SMS_PROVIDER_RATE_LIMITED
+                - SMS_INVALID_RECIPIENT
+                - SMS_REJECTED
+                - SMS_TIMEOUT
+                - SMS_TEMPORARILY_UNAVAILABLE
+                - OTP_INVALID
+                - OTP_EXPIRED
+                - OTP_USED
+                - OTP_ATTEMPTS_EXHAUSTED
+                - REGISTRATION_AUTH_INVALID
+                - REGISTRATION_AUTH_EXPIRED
+                - LEGAL_VERSION_STALE
+                - DEPENDENCY_UNAVAILABLE
+                - SESSION_CREATION_FAILED
+                - REFRESH_INVALID
+                - REFRESH_EXPIRED
+                - REFRESH_REPLAYED
+            message:
+              type: string
+            retryable:
+              type: boolean
+            retryAfterSeconds:
+              type: integer
+              minimum: 1
+            requestId:
+              type: string
+    OrangeDeliveryReceipt:
+      type: object
+      additionalProperties: false
+      required: [deliveryInfoNotification]
+      properties:
+        deliveryInfoNotification:
+          type: object
+          additionalProperties: false
+          required: [callbackData, deliveryInfo]
+          properties:
+            callbackData:
+              type: string
+              maxLength: 255
+            deliveryInfo:
+              type: object
+              additionalProperties: false
+              required: [address, deliveryStatus]
+              properties:
+                address:
+                  type: string
+                  maxLength: 32
+                deliveryStatus:
+                  type: string
+                  enum:
+                    - DeliveredToNetwork
+                    - DeliveryUncertain
+                    - DeliveryImpossible
+                    - MessageWaiting
+                    - DeliveredToTerminal

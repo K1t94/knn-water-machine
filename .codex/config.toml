@@ -10,16 +10,10 @@ tool_output_token_limit = 6000
 model_auto_compact_token_limit = 90000
 
 [features]
-undo = true
+  undo = true
 
 [shell_environment_policy]
-include_only = [
-  "PATH",
-  "HOME",
-  "SHELL",
-  "TERM",
-  "USER",
-  "NVM_DIR",
-  "PNPM_HOME",
-  "VOLTA_HOME"
-]
+  include_only = ["PATH", "HOME", "SHELL", "TERM", "USER", "NVM_DIR", "PNPM_HOME", "VOLTA_HOME"]
+
+  [mcp_servers.webstorm]
+    url = "http://127.0.0.1:64542/stream"
