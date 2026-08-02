@@ -6,8 +6,8 @@ import { MetricsController } from './metrics.controller';
 
 @Global()
 @Module({
-  controllers: [MetricsController],
-  providers: [AuthMetrics, InternalMetricsGuard],
-  exports: [AuthMetrics],
+    controllers: [MetricsController],
+    providers: [AuthMetrics, InternalMetricsGuard],
+    exports: [AuthMetrics],
 })
 export class ObservabilityModule {}

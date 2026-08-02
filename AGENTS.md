@@ -122,40 +122,26 @@ High severity:
 - Feature-specific decisions in an approved `specs/<feature>/spec.md` may clarify the MVP requirements but must not silently contradict them.
 - Any conflict or required scope change must be reported before implementation.
 
-[//]: # (## ERP reference repository)
-
-[//]: # ()
-[//]: # (The Python ERP repository is available at:)
-
-[//]: # ()
-[//]: # (`../erp-reference`)
-
-[//]: # ()
-[//]: # (It is a read-only reference implementation.)
-
-[//]: # ()
-[//]: # (Rules:)
-
-[//]: # ()
-[//]: # (- Never modify, format, rename, delete or create files inside erp-reference.)
-
-[//]: # (- Never run database migrations or production commands from erp-reference.)
-
-[//]: # (- Never copy secrets, API keys, passwords or personal data.)
-
-[//]: # (- Do not port Python code line by line.)
-
-[//]: # (- Extract business behavior, API contracts, MQTT topics, payloads,)
-
-[//]: # (  statuses and error-handling rules.)
-
-[//]: # (- Implement equivalent behavior through NestJS adapters.)
-
-[//]: # (- If the ERP behavior is ambiguous, document the ambiguity instead of guessing.)
-
-[//]: # (- Before implementation, create a compatibility report with exact source)
-
-[//]: # (  file references.)
+[//]: # '## ERP reference repository'
+[//]: #
+[//]: # 'The Python ERP repository is available at:'
+[//]: #
+[//]: # '`../erp-reference`'
+[//]: #
+[//]: # 'It is a read-only reference implementation.'
+[//]: #
+[//]: # 'Rules:'
+[//]: #
+[//]: # '- Never modify, format, rename, delete or create files inside erp-reference.'
+[//]: # '- Never run database migrations or production commands from erp-reference.'
+[//]: # '- Never copy secrets, API keys, passwords or personal data.'
+[//]: # '- Do not port Python code line by line.'
+[//]: # '- Extract business behavior, API contracts, MQTT topics, payloads,'
+[//]: # '  statuses and error-handling rules.'
+[//]: # '- Implement equivalent behavior through NestJS adapters.'
+[//]: # '- If the ERP behavior is ambiguous, document the ambiguity instead of guessing.'
+[//]: # '- Before implementation, create a compatibility report with exact source'
+[//]: # '  file references.'
 
 ## UI Development and Mockups
 
@@ -248,7 +234,8 @@ Use real data received from the API or neutral placeholders.
   requirements instead of inventing new business logic based on the images.
 
 <!-- SPECKIT START -->
+
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/002-phone-otp-auth/plan.md
+at specs/003-eslint-rules/plan.md
 <!-- SPECKIT END -->
