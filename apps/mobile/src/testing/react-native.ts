@@ -7,10 +7,10 @@ export const View = 'View';
 export const ScrollView = 'ScrollView';
 export const Platform = { OS: 'ios' };
 export const Linking = {
-  getInitialURL: async (): Promise<string | null> => null,
+    getInitialURL: async (): Promise<string | null> => null,
 };
 
 export const StyleSheet = {
-  create: <T>(styles: T): T => styles,
-  flatten: (style: unknown): unknown => style,
+    create: <T>(styles: T): T => styles,
+    flatten: (style: unknown): unknown => style,
 };

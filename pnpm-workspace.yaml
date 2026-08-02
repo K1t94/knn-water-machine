@@ -1,8 +1,8 @@
 packages:
-  - apps/*
+    - apps/*
 allowBuilds:
-  '@prisma/client': true
-  '@prisma/engines': true
-  '@scarf/scarf': false
-  esbuild: true
-  prisma: true
+    '@prisma/client': true
+    '@prisma/engines': true
+    '@scarf/scarf': false
+    esbuild: true
+    prisma: true

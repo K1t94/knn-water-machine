@@ -1,9 +1,9 @@
 import type { RedisScript } from '../../../infrastructure/redis/redis-script-runner';
 
 export const prepareOtpScript: RedisScript<'prepared'> = {
-  name: 'otp-prepare',
-  version: 2,
-  source: `
+    name: 'otp-prepare',
+    version: 2,
+    source: `
     redis.call('HSET', KEYS[1],
       'state', 'PREPARED', 'challengeId', ARGV[1], 'phone', ARGV[2],
       'digest', ARGV[3], 'keyVersion', ARGV[4], 'attempts', ARGV[5],
@@ -12,13 +12,13 @@ export const prepareOtpScript: RedisScript<'prepared'> = {
     redis.call('PEXPIREAT', KEYS[1], ARGV[7])
     return 'prepared'
   `,
-  parse: () => 'prepared',
+    parse: () => 'prepared',
 };
 
 export const activateOtpScript: RedisScript<'active' | 'expired' | 'missing'> = {
-  name: 'otp-activate',
-  version: 1,
-  source: `
+    name: 'otp-activate',
+    version: 1,
+    source: `
     if redis.call('EXISTS', KEYS[1]) == 0 then return 'missing' end
     local expiresAt = tonumber(redis.call('HGET', KEYS[1], 'expiresAt'))
     if expiresAt <= tonumber(ARGV[1]) then redis.call('DEL', KEYS[1]); return 'expired' end
@@ -29,54 +29,62 @@ export const activateOtpScript: RedisScript<'active' | 'expired' | 'missing'> = 
     redis.call('SET', KEYS[3], '1', 'PX', ARGV[4])
     return 'active'
   `,
-  parse: (result) => {
-    if (result === 'expired') return 'expired';
-    return result === 'active' ? 'active' : 'missing';
-  },
+    parse: (result) => {
+        if (result === 'expired') return 'expired';
+        return result === 'active' ? 'active' : 'missing';
+    },
 };
 
 export const failPreparedOtpScript: RedisScript<boolean> = {
-  name: 'otp-fail-prepared',
-  version: 1,
-  source: `
+    name: 'otp-fail-prepared',
+    version: 1,
+    source: `
     if redis.call('HGET', KEYS[1], 'state') ~= 'PREPARED' then return 0 end
     redis.call('DEL', KEYS[1])
     return 1
   `,
-  parse: (result) => Number(result) === 1,
+    parse: (result) => Number(result) === 1,
 };
 
 export const updateOtpPromoScript: RedisScript<'updated' | 'missing'> = {
-  name: 'otp-update-promo',
-  version: 1,
-  source: `
+    name: 'otp-update-promo',
+    version: 1,
+    source: `
     if redis.call('EXISTS', KEYS[1]) == 0 then return 'missing' end
     redis.call('HSET', KEYS[1], 'promoState', ARGV[1], 'promo', ARGV[2])
     return 'updated'
   `,
-  parse: (result) => result === 'updated' ? 'updated' : 'missing',
+    parse: (result) => (result === 'updated' ? 'updated' : 'missing'),
 };
 
 export const releaseOwnedLockScript: RedisScript<boolean> = {
-  name: 'otp-release-owned-lock',
-  version: 1,
-  source: `
+    name: 'otp-release-owned-lock',
+    version: 1,
+    source: `
     if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
     redis.call('DEL', KEYS[1])
     return 1
   `,
-  parse: (result) => Number(result) === 1,
+    parse: (result) => Number(result) === 1,
 };
 
 export type AbuseReservationResult =
-  | 'ok' | 'blocked' | 'phone_hour' | 'phone_day' | 'ip_hour'
-  | 'installation_hour' | 'installation_day' | 'throughput'
-  | 'count_budget' | 'cost_budget' | 'busy';
+    | 'ok'
+    | 'blocked'
+    | 'phone_hour'
+    | 'phone_day'
+    | 'ip_hour'
+    | 'installation_hour'
+    | 'installation_day'
+    | 'throughput'
+    | 'count_budget'
+    | 'cost_budget'
+    | 'busy';
 
 export const reserveOtpSendScript: RedisScript<AbuseReservationResult> = {
-  name: 'otp-abuse-reserve',
-  version: 2,
-  source: `
+    name: 'otp-abuse-reserve',
+    version: 2,
+    source: `
     local function value(key) return tonumber(redis.call('GET', key) or '0') end
     local function incrementFixed(key, ttl)
       local count = redis.call('INCR', key)
@@ -101,40 +109,40 @@ export const reserveOtpSendScript: RedisScript<AbuseReservationResult> = {
     incrementFixed(KEYS[10], 30000)
     return 'ok'
   `,
-  parse: (value) => {
-    const result = String(value) as AbuseReservationResult;
-    return allowedReservationResults.has(result) ? result : 'busy';
-  },
+    parse: (value) => {
+        const result = String(value) as AbuseReservationResult;
+        return allowedReservationResults.has(result) ? result : 'busy';
+    },
 };
 
 export const releaseOtpSemaphoreScript: RedisScript<void> = {
-  name: 'otp-abuse-release',
-  version: 2,
-  source: `
+    name: 'otp-abuse-release',
+    version: 2,
+    source: `
     local value = tonumber(redis.call('GET', KEYS[1]) or '0')
     if value <= 1 then redis.call('DEL', KEYS[1]) else redis.call('DECR', KEYS[1]) end
     return 1
   `,
-  parse: () => undefined,
+    parse: () => undefined,
 };
 
 export const refundOtpBudgetScript: RedisScript<void> = {
-  name: 'otp-budget-refund',
-  version: 2,
-  source: `
+    name: 'otp-budget-refund',
+    version: 2,
+    source: `
     local count = tonumber(redis.call('GET', KEYS[1]) or '0')
     if count > 0 then redis.call('DECR', KEYS[1]) end
     local cost = tonumber(redis.call('GET', KEYS[2]) or '0')
     if cost > 0 then redis.call('SET', KEYS[2], math.max(0, cost-tonumber(ARGV[1])), 'KEEPTTL') end
     return 1
   `,
-  parse: () => undefined,
+    parse: () => undefined,
 };
 
 export const recordOtpExhaustionScript: RedisScript<boolean> = {
-  name: 'otp-exhaustion-block',
-  version: 2,
-  source: `
+    name: 'otp-exhaustion-block',
+    version: 2,
+    source: `
     local count = redis.call('INCR', KEYS[1])
     if count == 1 then redis.call('PEXPIRE', KEYS[1], 172800000) end
     if count >= tonumber(ARGV[1]) then
@@ -142,11 +150,19 @@ export const recordOtpExhaustionScript: RedisScript<boolean> = {
     end
     return 0
   `,
-  parse: (value) => Number(value) === 1,
+    parse: (value) => Number(value) === 1,
 };
 
 const allowedReservationResults = new Set<AbuseReservationResult>([
-  'ok', 'blocked', 'phone_hour', 'phone_day', 'ip_hour',
-  'installation_hour', 'installation_day', 'throughput',
-  'count_budget', 'cost_budget', 'busy',
+    'ok',
+    'blocked',
+    'phone_hour',
+    'phone_day',
+    'ip_hour',
+    'installation_hour',
+    'installation_day',
+    'throughput',
+    'count_budget',
+    'cost_budget',
+    'busy',
 ]);
