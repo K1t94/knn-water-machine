@@ -3,7 +3,12 @@ dist/
 build/
 coverage/
 .git/
+Dockerfile*
+.dockerignore
 .env*
 *.log
+*.tmp
+tmp/
+temp/
 ios/
 android/

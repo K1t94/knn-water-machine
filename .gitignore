@@ -11,6 +11,12 @@ coverage/
 *.log
 .cache/
 .turbo/
+.eslintcache
+tmp/
+temp/
+*.tmp
+*.swp
+.DS_Store
 *.pem
 *.key
 *.crt

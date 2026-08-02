@@ -4,7 +4,7 @@ import { CredentialCryptoService } from './credential-crypto.service';
 
 @Global()
 @Module({
-  providers: [CredentialCryptoService],
-  exports: [CredentialCryptoService],
+    providers: [CredentialCryptoService],
+    exports: [CredentialCryptoService],
 })
 export class SecurityModule {}

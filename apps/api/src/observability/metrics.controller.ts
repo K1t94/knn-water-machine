@@ -8,11 +8,11 @@ import { InternalMetricsGuard } from './internal-metrics.guard';
 @Controller('internal/metrics')
 @UseGuards(InternalMetricsGuard)
 export class MetricsController {
-  constructor(@Inject(AuthMetrics) private readonly metrics: AuthMetrics) {}
+    constructor(@Inject(AuthMetrics) private readonly metrics: AuthMetrics) {}
 
-  @Get()
-  @Header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
-  render(): Promise<string> {
-    return this.metrics.render();
-  }
+    @Get()
+    @Header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
+    render(): Promise<string> {
+        return this.metrics.render();
+    }
 }
