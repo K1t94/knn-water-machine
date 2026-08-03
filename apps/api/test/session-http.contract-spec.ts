@@ -14,6 +14,8 @@ import { AccessSessionGuard } from '../src/sessions/http/access-session.guard';
 import { SessionsController } from '../src/sessions/http/sessions.controller';
 import { SessionsRepository } from '../src/sessions/infrastructure/postgres/sessions.repository';
 
+import { httpServer, requiredRecord, responseRecord } from './http-test-helpers';
+
 import type { RegistrationAuthorizationStore } from '../src/auth/infrastructure/redis/registration-authorization.store';
 import type { LegalService } from '../src/legal/application/legal.service';
 import type { LegalRepository } from '../src/legal/infrastructure/postgres/legal.repository';
@@ -149,13 +151,14 @@ describe('session HTTP contract', () => {
     afterEach(() => app.close());
 
     it('returns rotated credentials without changing the absolute deadline', async () => {
-        const response = await request(app.getHttpAdapter().getInstance()).post('/v1/auth/sessions/refresh').send({
+        const response = await request(httpServer(app)).post('/v1/auth/sessions/refresh').send({
             refreshToken: 'old-refresh-token-that-is-at-least-thirty-two-bytes',
         });
 
+        const body = responseRecord(response);
         expect(response.status, JSON.stringify(response.body)).toBe(200);
         expect(response.body).toEqual(credentials);
-        expect(response.body.refreshExpiresAt).toBe(credentials.refreshExpiresAt);
+        expect(body.refreshExpiresAt).toBe(credentials.refreshExpiresAt);
         expect(response.headers['cache-control']).toBe('no-store');
     });
 
@@ -166,12 +169,13 @@ describe('session HTTP contract', () => {
     ] as const)('maps terminal %s without internal details', async (code, message) => {
         sessions.refresh.mockRejectedValueOnce(new SessionError(code));
 
-        const response = await request(app.getHttpAdapter().getInstance()).post('/v1/auth/sessions/refresh').send({
+        const response = await request(httpServer(app)).post('/v1/auth/sessions/refresh').send({
             refreshToken: 'old-refresh-token-that-is-at-least-thirty-two-bytes',
         });
 
+        const error = requiredRecord(responseRecord(response), 'error');
         expect(response.status, JSON.stringify(response.body)).toBe(401);
-        expect(response.body.error).toEqual(
+        expect(error).toEqual(
             expect.objectContaining({
                 code,
                 message,
@@ -182,14 +186,14 @@ describe('session HTTP contract', () => {
 
     it('rejects revoked, expired, or malformed access credentials', async () => {
         sessionRepository.findActive.mockResolvedValueOnce(null);
-        const revoked = await request(app.getHttpAdapter().getInstance())
+        const revoked = await request(httpServer(app))
             .delete('/v1/auth/sessions/current')
             .set('authorization', 'Bearer access-token');
         accessTokens.validate.mockRejectedValueOnce(new Error('expired'));
-        const expired = await request(app.getHttpAdapter().getInstance())
+        const expired = await request(httpServer(app))
             .delete('/v1/auth/sessions/current')
             .set('authorization', 'Bearer access-token');
-        const missing = await request(app.getHttpAdapter().getInstance()).delete('/v1/auth/sessions/current');
+        const missing = await request(httpServer(app)).delete('/v1/auth/sessions/current');
 
         expect([revoked.status, expired.status, missing.status]).toEqual([401, 401, 401]);
         expect(sessions.logout).not.toHaveBeenCalled();
@@ -197,9 +201,7 @@ describe('session HTTP contract', () => {
 
     it('logs out the current device idempotently', async () => {
         const send = () =>
-            request(app.getHttpAdapter().getInstance())
-                .delete('/v1/auth/sessions/current')
-                .set('authorization', 'Bearer access-token');
+            request(httpServer(app)).delete('/v1/auth/sessions/current').set('authorization', 'Bearer access-token');
 
         const first = await send();
         const second = await send();
@@ -210,7 +212,7 @@ describe('session HTTP contract', () => {
     });
 
     it('uses the restricted authorization to atomically accept stale legal versions', async () => {
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .post('/v1/auth/legal/acceptances')
             .set('x-registration-authorization', 'registration-authorization-token-with-enough-entropy')
             .set('idempotency-key', 'legal-acceptance-attempt-0001')

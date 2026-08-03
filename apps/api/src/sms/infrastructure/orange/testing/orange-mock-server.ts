@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import { orangeFixtures } from './orange-fixtures';
 
@@ -42,24 +42,10 @@ export class OrangeMockServer {
     }
 
     async start(): Promise<void> {
-        this.server = createServer(async (request, response) => {
-            const chunks: Buffer[] = [];
-            for await (const chunk of request) chunks.push(Buffer.from(chunk));
-            this.requests.push({
-                method: request.method ?? '',
-                url: request.url ?? '',
-                headers: request.headers,
-                body: Buffer.concat(chunks).toString('utf8'),
+        this.server = createServer((request, response) => {
+            this.handleRequest(request, response).catch((error: unknown) => {
+                response.destroy(error instanceof Error ? error : new Error('Orange mock request failed'));
             });
-            const oauth = request.url === '/oauth/v3/token';
-            const fixture =
-                (oauth ? this.oauthQueue.shift() : this.smsQueue.shift()) ??
-                (oauth
-                    ? { status: 200, body: orangeFixtures.oauthSuccess }
-                    : { status: 201, body: orangeFixtures.smsAccepted });
-            if (fixture.delayMs) await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
-            response.writeHead(fixture.status, { 'content-type': 'application/json', ...fixture.headers });
-            response.end(JSON.stringify(fixture.body ?? {}));
         });
         await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve));
         const address = this.server.address();
@@ -74,5 +60,28 @@ export class OrangeMockServer {
         );
         this.server = undefined;
         this.originValue = undefined;
+    }
+
+    private async handleRequest(request: IncomingMessage, response: ServerResponse<IncomingMessage>): Promise<void> {
+        request.setEncoding('utf8');
+        let body = '';
+        for await (const chunk of request) {
+            if (typeof chunk === 'string') body += chunk;
+        }
+        this.requests.push({
+            method: request.method ?? '',
+            url: request.url ?? '',
+            headers: request.headers,
+            body,
+        });
+        const oauth = request.url === '/oauth/v3/token';
+        const fixture =
+            (oauth ? this.oauthQueue.shift() : this.smsQueue.shift()) ??
+            (oauth
+                ? { status: 200, body: orangeFixtures.oauthSuccess }
+                : { status: 201, body: orangeFixtures.smsAccepted });
+        if (fixture.delayMs) await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
+        response.writeHead(fixture.status, { 'content-type': 'application/json', ...fixture.headers });
+        response.end(JSON.stringify(fixture.body ?? {}));
     }
 }

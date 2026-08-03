@@ -4,7 +4,7 @@ import { mapOrangeError, mapOrangeResponse } from './orange-error-mapper';
 import { withOrangeRetry, type OrangeRetryOptions } from './orange-retry';
 
 import type { OrangeOAuthClient } from './orange-oauth-client';
-import type { OrangeOutboundRequest, OrangeOutboundResponse } from './orange.dto';
+import type { OrangeOutboundRequest } from './orange.dto';
 import type { SendSmsCommand, SendSmsResult, SmsProvider } from '../../application/ports/sms-provider';
 
 export interface OrangeSmsConfig {
@@ -91,13 +91,13 @@ export class OrangeSmsProvider implements SmsProvider {
             throw mapped.error;
         }
 
-        let payload: OrangeOutboundResponse;
+        let payload: unknown;
         try {
-            payload = (await response.json()) as OrangeOutboundResponse;
+            payload = await response.json();
         } catch {
             throw new SmsProviderError('TEMPORARY_PROVIDER_FAILURE', true);
         }
-        const resource = payload.outboundSMSMessageRequest?.resourceURL;
+        const resource = readNestedString(payload, 'outboundSMSMessageRequest', 'resourceURL');
         const providerMessageId = typeof resource === 'string' ? resource.split('/').filter(Boolean).at(-1) : undefined;
         if (!providerMessageId) {
             throw new SmsProviderError('TEMPORARY_PROVIDER_FAILURE', true);
@@ -119,6 +119,14 @@ export class OrangeSmsProvider implements SmsProvider {
             throw new SmsProviderError('INVALID_CONFIGURATION', false);
         }
     }
+}
+
+function readNestedString(value: unknown, parentKey: string, childKey: string): string | undefined {
+    if (typeof value !== 'object' || value === null) return undefined;
+    const parent: unknown = Reflect.get(value, parentKey);
+    if (typeof parent !== 'object' || parent === null) return undefined;
+    const child: unknown = Reflect.get(parent, childKey);
+    return typeof child === 'string' ? child : undefined;
 }
 
 function isSecureOrangeUrl(value: string): boolean {

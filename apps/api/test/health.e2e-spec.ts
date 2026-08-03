@@ -6,6 +6,8 @@ import { DependencyChecksService } from '../src/health/dependency-checks.service
 import { HealthModule } from '../src/health/health.module';
 import { RedisService } from '../src/infrastructure/redis/redis.service';
 
+import { httpServer, requiredRecord, responseRecord } from './http-test-helpers';
+
 import type { DependencyStatus } from '../src/health/dependency-checks.service';
 import type { INestApplication } from '@nestjs/common';
 
@@ -36,7 +38,7 @@ describe('GET /health', () => {
         checks.checkAll.mockResolvedValue(upStatuses());
 
         const startedAt = performance.now();
-        const response = await request(app.getHttpAdapter().getInstance()).get('/health');
+        const response = await request(httpServer(app)).get('/health');
         const elapsedMs = performance.now() - startedAt;
 
         expect(response.status).toBe(200);
@@ -61,13 +63,15 @@ describe('GET /health', () => {
         });
 
         const startedAt = performance.now();
-        const response = await request(app.getHttpAdapter().getInstance()).get('/health');
+        const response = await request(httpServer(app)).get('/health');
         const elapsedMs = performance.now() - startedAt;
+        const body = responseRecord(response);
+        const dependencies = requiredRecord(body, 'dependencies');
 
         expect(response.status).toBe(503);
         expect(elapsedMs).toBeLessThan(5000);
-        expect(response.body.status).toBe('degraded');
-        expect(response.body.dependencies.redis).toEqual({
+        expect(body.status).toBe('degraded');
+        expect(dependencies.redis).toEqual({
             status: 'down',
             errorCode: 'REDIS_UNAVAILABLE',
         });
@@ -78,7 +82,7 @@ describe('GET /health', () => {
         checks.checkAll.mockImplementation(() => new Promise(() => undefined));
 
         const startedAt = performance.now();
-        const response = await request(app.getHttpAdapter().getInstance()).get('/health');
+        const response = await request(httpServer(app)).get('/health');
         const elapsedMs = performance.now() - startedAt;
 
         expect(response.status).toBe(503);

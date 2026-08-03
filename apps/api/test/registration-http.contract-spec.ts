@@ -12,6 +12,8 @@ import {
 import { LegalService, LegalVersionStaleError } from '../src/legal/application/legal.service';
 import { LegalController } from '../src/legal/http/legal.controller';
 
+import { httpServer, requiredRecord, responseRecord } from './http-test-helpers';
+
 import type { INestApplication } from '@nestjs/common';
 
 const authorization = 'registration-authorization-token-with-enough-entropy';
@@ -76,7 +78,7 @@ describe('registration HTTP contract', () => {
     afterEach(() => app.close());
 
     it('updates only pending promo context under registration authorization', async () => {
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .patch('/v1/auth/registration/context')
             .set('x-registration-authorization', authorization)
             .send({ pendingPromoCode: 'PROMO-1' });
@@ -87,7 +89,7 @@ describe('registration HTTP contract', () => {
     });
 
     it('returns the exact current legal set without internal storage fields', async () => {
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .get('/v1/legal/documents/current')
             .set('x-registration-authorization', authorization);
 
@@ -110,16 +112,17 @@ describe('registration HTTP contract', () => {
     });
 
     it('rejects legal retrieval without registration authorization before storage access', async () => {
-        const response = await request(app.getHttpAdapter().getInstance()).get('/v1/legal/documents/current');
+        const response = await request(httpServer(app)).get('/v1/legal/documents/current');
+        const error = requiredRecord(responseRecord(response), 'error');
 
         expect(response.status).toBe(401);
-        expect(response.body.error.code).toBe('REGISTRATION_AUTH_INVALID');
+        expect(error.code).toBe('REGISTRATION_AUTH_INVALID');
         expect(registrations.requireActive).not.toHaveBeenCalled();
     });
 
     it('returns byte-equivalent credentials for a repeated idempotency key', async () => {
         const send = () =>
-            request(app.getHttpAdapter().getInstance())
+            request(httpServer(app))
                 .post('/v1/auth/registration/complete')
                 .set('x-registration-authorization', authorization)
                 .set('idempotency-key', idempotencyKey)
@@ -146,7 +149,7 @@ describe('registration HTTP contract', () => {
     });
 
     it('rejects missing authorization and malformed idempotency before work', async () => {
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .post('/v1/auth/registration/complete')
             .set('idempotency-key', 'short')
             .send({
@@ -164,7 +167,7 @@ describe('registration HTTP contract', () => {
             .mockRejectedValueOnce(new LegalVersionStaleError())
             .mockRejectedValueOnce(new RegistrationAuthorizationError('REGISTRATION_ALREADY_COMPLETING'));
         const send = (key: string) =>
-            request(app.getHttpAdapter().getInstance())
+            request(httpServer(app))
                 .post('/v1/auth/registration/complete')
                 .set('x-registration-authorization', authorization)
                 .set('idempotency-key', key)
@@ -177,11 +180,13 @@ describe('registration HTTP contract', () => {
 
         const stale = await send('registration-attempt-stale');
         const conflict = await send('registration-attempt-conflict');
+        const staleError = requiredRecord(responseRecord(stale), 'error');
+        const conflictError = requiredRecord(responseRecord(conflict), 'error');
 
         expect(stale.status).toBe(409);
-        expect(stale.body.error.code).toBe('LEGAL_VERSION_STALE');
+        expect(staleError.code).toBe('LEGAL_VERSION_STALE');
         expect(conflict.status).toBe(503);
-        expect(conflict.body.error).toEqual(
+        expect(conflictError).toEqual(
             expect.objectContaining({
                 code: 'DEPENDENCY_UNAVAILABLE',
                 retryable: true,
@@ -192,7 +197,7 @@ describe('registration HTTP contract', () => {
 
     it('redacts unexpected dependency failures', async () => {
         registration.complete.mockRejectedValue(new Error('postgres password=do-not-expose'));
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .post('/v1/auth/registration/complete')
             .set('x-registration-authorization', authorization)
             .set('idempotency-key', idempotencyKey)

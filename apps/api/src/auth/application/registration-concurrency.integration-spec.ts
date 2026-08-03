@@ -1,5 +1,5 @@
 import { LegalDocumentKind } from '@prisma/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { CredentialCryptoService } from '../../common/security/credential-crypto.service';
 import { LegalService } from '../../legal/application/legal.service';
@@ -70,9 +70,9 @@ describe('RegistrationService concurrency and repair', () => {
     let failNextCompletionTransition: boolean;
     let transactionQueue: Promise<void>;
     let service: RegistrationService;
-    let accessIssue: ReturnType<typeof vi.fn>;
-    let refreshGenerate: ReturnType<typeof vi.fn>;
-    let refreshDigest: ReturnType<typeof vi.fn>;
+    let accessIssue: Mock<() => Promise<{ token: string; expiresAt: Date }>>;
+    let refreshGenerate: Mock<() => string>;
+    let refreshDigest: Mock<(token: string) => string>;
     let registrations: {
         inspect: ReturnType<typeof vi.fn>;
         beginCompletion: ReturnType<typeof vi.fn>;
@@ -227,7 +227,7 @@ describe('RegistrationService concurrency and repair', () => {
                     await operation(transaction);
                     durable = transaction;
                 } finally {
-                    releaseTransaction?.();
+                    releaseTransaction();
                 }
             }),
         };

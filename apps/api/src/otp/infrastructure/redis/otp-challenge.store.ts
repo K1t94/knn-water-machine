@@ -57,7 +57,7 @@ export class OtpChallengeStore {
 
     async prepare(challenge: PrepareOtpChallenge): Promise<void> {
         const promo = challenge.pendingPromoCode;
-        const result = await this.scripts.invoke(prepareOtpScript, {
+        await this.scripts.invoke(prepareOtpScript, {
             keys: [this.challengeKey(challenge.challengeId), this.currentKey(this.phoneKey(challenge.phoneE164))],
             arguments: [
                 challenge.challengeId,
@@ -72,10 +72,6 @@ export class OtpChallengeStore {
                 promo ?? '',
             ],
         });
-
-        if (result !== 'prepared') {
-            throw new Error('OTP challenge could not be prepared');
-        }
     }
 
     activate(

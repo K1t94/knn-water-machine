@@ -17,8 +17,11 @@ describe('normalizeSenegalPhone', () => {
     });
 
     it('rejects a valid number from another country', () => {
-        expect(() => normalizeSenegalPhone('+33612345678')).toThrow(
-            expect.objectContaining({ code: 'UNSUPPORTED_COUNTRY' }),
-        );
+        try {
+            normalizeSenegalPhone('+33612345678');
+            throw new Error('Expected phone validation to fail');
+        } catch (error: unknown) {
+            expect(error).toMatchObject({ code: 'UNSUPPORTED_COUNTRY' });
+        }
     });
 });

@@ -348,7 +348,7 @@ export class RegistrationAuthorizationStore {
         ) {
             throw new RegistrationAuthorizationError('REGISTRATION_ALREADY_COMPLETING');
         }
-        return this.openResult(values, tokenDigest, expected, values.flowId, values.sessionId ?? '');
+        return this.openResult(values, tokenDigest, expected, values.flowId, hashValue(values, 'sessionId') ?? '');
     }
 
     private async read(token: string): Promise<RegistrationAuthorization> {
@@ -373,7 +373,7 @@ export class RegistrationAuthorizationStore {
         if (!values.flowId) {
             throw new RegistrationAuthorizationError('REGISTRATION_AUTH_INVALID');
         }
-        if (Date.parse(values.expiresAt ?? '') <= Date.now()) {
+        if (Date.parse(hashValue(values, 'expiresAt') ?? '') <= Date.now()) {
             throw new RegistrationAuthorizationError('REGISTRATION_AUTH_EXPIRED');
         }
         return values as RegistrationHash;
@@ -402,10 +402,10 @@ export class RegistrationAuthorizationStore {
         sessionId: string,
     ): RegistrationResult {
         const sealed: SealedCredential = {
-            keyVersion: values.resultKeyVersion ?? '',
-            ciphertext: values.resultCiphertext ?? '',
-            nonce: values.resultNonce ?? '',
-            authenticationTag: values.resultAuthenticationTag ?? '',
+            keyVersion: hashValue(values, 'resultKeyVersion') ?? '',
+            ciphertext: hashValue(values, 'resultCiphertext') ?? '',
+            nonce: hashValue(values, 'resultNonce') ?? '',
+            authenticationTag: hashValue(values, 'resultAuthenticationTag') ?? '',
         };
         const plaintext = this.crypto.open(sealed, this.aad(tokenDigest, completionKeyDigest, flowId, sessionId));
         return JSON.parse(plaintext.toString('utf8')) as RegistrationResult;
@@ -414,7 +414,7 @@ export class RegistrationAuthorizationStore {
     private stableUserId(phoneE164: string): string {
         const hex = this.crypto.digest('credential', ['registration-user-id', phoneE164]).digest;
         const versioned = `${hex.slice(0, 12)}4${hex.slice(13, 16)}`;
-        const variant = ((Number.parseInt(hex[16] ?? '0', 16) & 0x3) | 0x8).toString(16);
+        const variant = ((Number.parseInt(hex.charAt(16) || '0', 16) & 0x3) | 0x8).toString(16);
         return [
             hex.slice(0, 8),
             hex.slice(8, 12),
@@ -423,4 +423,9 @@ export class RegistrationAuthorizationStore {
             hex.slice(20, 32),
         ].join('-');
     }
+}
+
+function hashValue(values: Readonly<Record<string, string>>, key: string): string | undefined {
+    const value: unknown = Reflect.get(values, key);
+    return typeof value === 'string' ? value : undefined;
 }

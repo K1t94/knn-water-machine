@@ -59,7 +59,7 @@ describe('FetchAuthApi', () => {
 
     it('is cold and aborts the native request when unsubscribed', () => {
         let signal: AbortSignal | undefined;
-        const fetcher = vi.fn((_url, init) => {
+        const fetcher = vi.fn((...[, init]: Parameters<typeof fetch>) => {
             signal = init?.signal ?? undefined;
             return new Promise<Response>(() => undefined);
         }) as unknown as typeof fetch;

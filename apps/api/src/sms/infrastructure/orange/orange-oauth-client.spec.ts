@@ -41,13 +41,15 @@ describe('OrangeOAuthClient', () => {
     });
 
     it('rejects credentials over non-loopback HTTP', () => {
-        expect(
-            () =>
-                new OrangeOAuthClient({
-                    clientId: 'client',
-                    clientSecret: 'secret',
-                    oauthUrl: 'http://api.example.test/oauth/v3/token',
-                }),
-        ).toThrow(expect.objectContaining({ category: 'INVALID_CONFIGURATION' }));
+        try {
+            new OrangeOAuthClient({
+                clientId: 'client',
+                clientSecret: 'secret',
+                oauthUrl: 'http://api.example.test/oauth/v3/token',
+            });
+            throw new Error('Expected Orange OAuth configuration to fail');
+        } catch (error: unknown) {
+            expect(error).toMatchObject({ category: 'INVALID_CONFIGURATION' });
+        }
     });
 });

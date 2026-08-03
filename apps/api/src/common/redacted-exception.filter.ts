@@ -30,7 +30,7 @@ export class RedactedExceptionFilter implements ExceptionFilter {
         this.logger.exception({
             requestId: request.headers['x-request-id'] as string | undefined,
             category,
-            route: request.route?.path ?? request.path,
+            route: requestRoute(request),
             statusCode: status,
             ...(request.authSecurity?.startedAt !== undefined
                 ? { latencyMs: Date.now() - request.authSecurity.startedAt }
@@ -52,6 +52,15 @@ export class RedactedExceptionFilter implements ExceptionFilter {
             error: status >= HttpStatus.INTERNAL_SERVER_ERROR ? 'Internal Server Error' : 'Request Error',
         });
     }
+}
+
+function requestRoute(request: Request): string {
+    const route: unknown = request.route;
+    if (typeof route === 'object' && route !== null) {
+        const path: unknown = Reflect.get(route, 'path');
+        if (typeof path === 'string') return path;
+    }
+    return request.path;
 }
 
 function authErrorResponse(value: unknown):

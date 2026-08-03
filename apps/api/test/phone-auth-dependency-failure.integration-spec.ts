@@ -9,6 +9,8 @@ import { RegistrationService } from '../src/auth/application/registration.servic
 import { AuthController, RegistrationController } from '../src/auth/http/auth.controller';
 import { OtpApplicationError, OtpService } from '../src/otp/application/otp.service';
 
+import { httpServer, requiredRecord, responseRecord } from './http-test-helpers';
+
 import type { INestApplication } from '@nestjs/common';
 
 const authorization = 'registration-authorization-token-with-enough-entropy';
@@ -57,7 +59,7 @@ describe('phone auth dependency recovery', () => {
     it('normalizes provider unavailability before a challenge is confirmed', async () => {
         otp.request.mockRejectedValueOnce(new OtpApplicationError('SMS_TEMPORARILY_UNAVAILABLE'));
 
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .post('/v1/auth/otp/requests')
             .set('x-request-id', 'provider-failure')
             .send({
@@ -65,8 +67,9 @@ describe('phone auth dependency recovery', () => {
                 installationId: 'installation-dependency-0001',
             });
 
+        const error = requiredRecord(responseRecord(response), 'error');
         expect(response.status).toBe(503);
-        expect(response.body.error).toEqual(
+        expect(error).toEqual(
             expect.objectContaining({
                 code: 'SMS_TEMPORARILY_UNAVAILABLE',
                 retryable: true,
@@ -81,7 +84,7 @@ describe('phone auth dependency recovery', () => {
             .mockResolvedValueOnce(credentials);
 
         const send = () =>
-            request(app.getHttpAdapter().getInstance())
+            request(httpServer(app))
                 .post('/v1/auth/registration/complete')
                 .set('x-registration-authorization', authorization)
                 .set('idempotency-key', 'dependency-retry-attempt')
@@ -90,9 +93,10 @@ describe('phone auth dependency recovery', () => {
 
         const failed = await send();
         const retried = await send();
+        const error = requiredRecord(responseRecord(failed), 'error');
 
         expect(failed.status).toBe(503);
-        expect(failed.body.error).toEqual(
+        expect(error).toEqual(
             expect.objectContaining({
                 code: 'DEPENDENCY_UNAVAILABLE',
                 retryable: true,

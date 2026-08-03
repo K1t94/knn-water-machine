@@ -12,6 +12,8 @@ import {
     timeout,
 } from 'rxjs';
 
+import { createRuntimeId } from '../common/create-runtime-id';
+
 export type OtpDelivery = 'accepted' | 'uncertain';
 
 export interface OtpIssued {
@@ -225,7 +227,7 @@ export class FetchAuthApi implements AuthApi {
                 switchMap((response) =>
                     defer(() => (response.status === 204 ? of(undefined) : from(response.json()))).pipe(
                         catchError(() => of(undefined)),
-                        map((payload: unknown) => normalizeResponse<T>(response, payload)),
+                        map((payload: unknown) => normalizeResponse(response, payload) as T),
                     ),
                 ),
                 timeout({ first: this.timeoutMs }),
@@ -241,7 +243,7 @@ export class FetchAuthApi implements AuthApi {
     }
 }
 
-function normalizeResponse<T>(response: Response, payload: unknown): T {
+function normalizeResponse(response: Response, payload: unknown): unknown {
     const errorPayload = payload as
         | {
               error?: { code?: string; retryable?: boolean; retryAfterSeconds?: number };
@@ -254,12 +256,9 @@ function normalizeResponse<T>(response: Response, payload: unknown): T {
             errorPayload?.error?.retryAfterSeconds,
         );
     }
-    return payload as T;
+    return payload;
 }
 
 function createRequestId(): string {
-    return (
-        globalThis.crypto?.randomUUID?.() ??
-        `mobile-${Date.now().toString(36)}-${performance.now().toString(36).replace('.', '')}`
-    );
+    return createRuntimeId('mobile');
 }

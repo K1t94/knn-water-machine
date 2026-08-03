@@ -109,21 +109,14 @@ describe('LegalRepository', () => {
     });
 
     it('filters current mandatory documents by requested locale', async () => {
-        const findMany = vi.fn().mockResolvedValue([]);
+        const findMany = vi.fn<(args: Prisma.LegalDocumentFindManyArgs) => Promise<never[]>>().mockResolvedValue([]);
         const repository = new LegalRepository({
             legalDocument: { findMany },
         } as unknown as PrismaService);
 
         await repository.currentMandatory('fr-SN');
+        const options = findMany.mock.calls[0][0];
 
-        expect(findMany).toHaveBeenCalledWith(
-            expect.objectContaining({
-                where: expect.objectContaining({
-                    locale: 'fr-SN',
-                    mandatory: true,
-                    isCurrent: true,
-                }),
-            }),
-        );
+        expect(options.where).toEqual(expect.objectContaining({ locale: 'fr-SN', mandatory: true, isCurrent: true }));
     });
 });

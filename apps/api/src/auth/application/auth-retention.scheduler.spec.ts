@@ -39,7 +39,7 @@ describe('AuthRetentionScheduler', () => {
         await module.init();
         const registry = module.get(SchedulerRegistry);
         expect(registry.doesExist('cron', 'auth-retention')).toBe(true);
-        registry.getCronJob('auth-retention').stop();
+        await registry.getCronJob('auth-retention').stop();
         await module.close();
     });
 });

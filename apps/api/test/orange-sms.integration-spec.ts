@@ -6,6 +6,8 @@ import { OrangeOAuthClient } from '../src/sms/infrastructure/orange/orange-oauth
 import { OrangeSmsProvider } from '../src/sms/infrastructure/orange/orange-sms.provider';
 import { OrangeMockServer } from '../src/sms/infrastructure/orange/testing/orange-mock-server';
 
+import { asRecord, requiredRecord } from './http-test-helpers';
+
 describe('mocked Orange integration', () => {
     let server: OrangeMockServer;
     beforeEach(async () => {
@@ -22,13 +24,13 @@ describe('mocked Orange integration', () => {
         };
         const repository = {
             prepare: vi.fn().mockResolvedValue(row),
-            markAccepted: vi.fn(async (_id, _messageId, acceptedAt) => {
+            markAccepted: vi.fn(async (_id: string, _messageId: string, acceptedAt: Date) => {
                 row.status = SmsDeliveryStatus.ACCEPTED;
                 row.acceptedAt = acceptedAt;
             }),
             markFailed: vi.fn(),
             findReceiptTarget: vi.fn(async () => row),
-            transitionReceipt: vi.fn(async (_id, expected, next) => {
+            transitionReceipt: vi.fn(async (_id: string, expected: SmsDeliveryStatus, next: SmsDeliveryStatus) => {
                 if (row.status !== expected) return { count: 0 };
                 row.status = next;
                 return { count: 1 };
@@ -56,7 +58,9 @@ describe('mocked Orange integration', () => {
         expect(result).toMatchObject({ status: 'accepted', providerMessageId: 'mock-message-1' });
         expect(repository.prepare).toHaveBeenCalledOnce();
         expect(repository.markAccepted).toHaveBeenCalledOnce();
-        expect(JSON.parse(server.requests.at(-1)!.body).outboundSMSMessageRequest.receiptRequest).toEqual({
+        const payload: unknown = JSON.parse(server.requests.at(-1)!.body) as unknown;
+        const outbound = requiredRecord(asRecord(payload, 'Orange request'), 'outboundSMSMessageRequest');
+        expect(outbound.receiptRequest).toEqual({
             notifyURL: 'https://callback.example.test/receipts',
             callbackData: '00000000-0000-4000-8000-000000000001',
         });

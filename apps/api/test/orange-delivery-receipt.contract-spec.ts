@@ -7,6 +7,8 @@ import { SmsDeliveryService, type SmsDeliveryPersistence } from '../src/sms/appl
 import { OrangeDeliveryReceiptController } from '../src/sms/infrastructure/orange/orange-delivery-receipt.controller';
 import { orangeFixtures } from '../src/sms/infrastructure/orange/testing/orange-fixtures';
 
+import { configureTrustProxy, httpServer } from './http-test-helpers';
+
 import type { INestApplication } from '@nestjs/common';
 
 const secret = Buffer.alloc(32, 7).toString('base64url');
@@ -33,7 +35,7 @@ describe('Orange Delivery Receipt HTTP contract', () => {
             providers: [{ provide: SmsDeliveryService, useValue: { applyReceipt } }],
         }).compile();
         app = module.createNestApplication();
-        app.getHttpAdapter().getInstance().set('trust proxy', ['127.0.0.1']);
+        configureTrustProxy(app, ['127.0.0.1']);
         await app.init();
     });
     afterEach(async () => {
@@ -43,21 +45,21 @@ describe('Orange Delivery Receipt HTTP contract', () => {
     });
 
     it('validates source network, HTTPS, and schema', async () => {
-        await request(app.getHttpAdapter().getInstance())
+        await request(httpServer(app))
             .post('/v1/integrations/orange/sms/delivery-receipts')
             .set('x-forwarded-proto', 'https')
             .send(orangeFixtures.receiptDelivered)
             .expect(200);
         expect(applyReceipt).toHaveBeenCalledWith('mock-message-1', 'delivered');
 
-        await request(app.getHttpAdapter().getInstance())
+        await request(httpServer(app))
             .post('/v1/integrations/orange/sms/delivery-receipts')
             .set('x-forwarded-for', '198.51.100.20')
             .set('x-forwarded-proto', 'https')
             .send(orangeFixtures.receiptDelivered)
             .expect(403);
 
-        await request(app.getHttpAdapter().getInstance())
+        await request(httpServer(app))
             .post('/v1/integrations/orange/sms/delivery-receipts')
             .set('x-forwarded-proto', 'https')
             .send({
@@ -67,7 +69,7 @@ describe('Orange Delivery Receipt HTTP contract', () => {
                 },
             })
             .expect(400);
-        await request(app.getHttpAdapter().getInstance())
+        await request(httpServer(app))
             .post('/v1/integrations/orange/sms/delivery-receipts')
             .send(orangeFixtures.receiptDelivered)
             .expect(403);
@@ -82,7 +84,7 @@ describe('Orange Delivery Receipt state machine', () => {
             markAccepted: vi.fn(),
             markFailed: vi.fn(),
             findReceiptTarget: vi.fn(async () => record),
-            transitionReceipt: vi.fn(async (_id, expected, next) => {
+            transitionReceipt: vi.fn(async (_id: string, expected: SmsDeliveryStatus, next: SmsDeliveryStatus) => {
                 if (!record || record.status !== expected) return { count: 0 };
                 record.status = next;
                 return { count: 1 };

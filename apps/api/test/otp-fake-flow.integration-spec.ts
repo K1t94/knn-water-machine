@@ -54,7 +54,7 @@ integration('US1 fake-provider checkpoint', () => {
     });
 
     afterAll(async () => {
-        await redis?.close();
+        await redis.close();
         await prisma.$disconnect();
     });
 

@@ -23,15 +23,8 @@ export class SecureRegistrationAuthorizationStorage implements RegistrationAutho
             map((raw) => {
                 if (!raw) return undefined;
                 try {
-                    const value = JSON.parse(raw) as StoredRegistrationAuthorization;
-                    if (
-                        typeof value.token !== 'string' ||
-                        typeof value.expiresAt !== 'string' ||
-                        (value.nextStep !== undefined &&
-                            value.nextStep !== 'completeRegistration' &&
-                            value.nextStep !== 'acceptLegal') ||
-                        Date.parse(value.expiresAt) <= Date.now()
-                    ) {
+                    const value: unknown = JSON.parse(raw);
+                    if (!isStoredRegistrationAuthorization(value) || Date.parse(value.expiresAt) <= Date.now()) {
                         return undefined;
                     }
                     return value;
@@ -55,6 +48,19 @@ export class SecureRegistrationAuthorizationStorage implements RegistrationAutho
     clear(): Observable<void> {
         return defer(() => from(SecureStore.deleteItemAsync(STORAGE_KEY)));
     }
+}
+
+function isStoredRegistrationAuthorization(value: unknown): value is StoredRegistrationAuthorization {
+    if (typeof value !== 'object' || value === null) return false;
+
+    const candidate = value as Record<string, unknown>;
+    return (
+        typeof candidate.token === 'string' &&
+        typeof candidate.expiresAt === 'string' &&
+        (candidate.nextStep === undefined ||
+            candidate.nextStep === 'completeRegistration' ||
+            candidate.nextStep === 'acceptLegal')
+    );
 }
 
 export class DevelopmentWebRegistrationAuthorizationStorage implements RegistrationAuthorizationStorage {

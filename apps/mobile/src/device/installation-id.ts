@@ -2,6 +2,8 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { defer, from, map, of, switchMap } from 'rxjs';
 
+import { createRuntimeId } from '../common/create-runtime-id';
+
 import type { Observable } from 'rxjs';
 
 const STORAGE_KEY = 'kaynann.installation-id';
@@ -26,8 +28,5 @@ export function getOrCreateInstallationId(): Observable<string> {
 }
 
 function createInstallationId(): string {
-    return (
-        globalThis.crypto?.randomUUID?.() ??
-        `install-${Date.now().toString(36)}-${performance.now().toString(36).replace('.', '')}`
-    );
+    return createRuntimeId('install');
 }

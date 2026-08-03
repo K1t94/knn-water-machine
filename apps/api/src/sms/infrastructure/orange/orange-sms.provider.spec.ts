@@ -51,15 +51,13 @@ describe('OrangeSmsProvider', () => {
 
     it('rejects insecure remote API and receipt URLs', () => {
         const oauth = new OrangeOAuthClient({ clientId: 'client', clientSecret: 'secret', oauthUrl: server.oauthUrl });
-        expect(
+        for (const createProvider of [
             () =>
                 new OrangeSmsProvider(oauth, {
                     apiUrl: 'http://api.example.test/smsmessaging/v1',
                     senderAddress: 'tel:+2210000',
                     senderName: 'KAYNANN',
                 }),
-        ).toThrow(expect.objectContaining({ category: 'INVALID_CONFIGURATION' }));
-        expect(
             () =>
                 new OrangeSmsProvider(oauth, {
                     apiUrl: server.apiUrl,
@@ -67,7 +65,14 @@ describe('OrangeSmsProvider', () => {
                     senderName: 'KAYNANN',
                     receiptCallbackUrl: 'http://callback.example.test/receipts',
                 }),
-        ).toThrow(expect.objectContaining({ category: 'INVALID_CONFIGURATION' }));
+        ]) {
+            try {
+                createProvider();
+                throw new Error('Expected Orange SMS configuration to fail');
+            } catch (error: unknown) {
+                expect(error).toMatchObject({ category: 'INVALID_CONFIGURATION' });
+            }
+        }
     });
 });
 

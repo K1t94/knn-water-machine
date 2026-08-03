@@ -38,7 +38,7 @@ const publicPaths = [
 ] as const;
 
 function operation(path: string, method: string): OpenApiOperation {
-    const result = generated.paths[path]?.[method];
+    const result = generated.paths[path][method];
     expect(result, `${method.toUpperCase()} ${path}`).toBeDefined();
     return result;
 }

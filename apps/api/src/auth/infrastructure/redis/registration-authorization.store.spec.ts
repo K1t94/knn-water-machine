@@ -23,7 +23,7 @@ integration('RegistrationAuthorizationStore', () => {
         if (keys.length > 0) await context.redis.commandClient.del(keys);
     });
 
-    afterAll(async () => context?.close());
+    afterAll(async () => context.close());
 
     it('stores only an opaque digest key with a 15-minute absolute TTL', async () => {
         const issued = await issue('+221771234567', 'installation-0001');

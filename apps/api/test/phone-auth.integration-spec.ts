@@ -8,6 +8,15 @@ import { AppModule } from '../src/app.module';
 import { RedactedExceptionFilter } from '../src/common/redacted-exception.filter';
 import { FakeSmsOutbox } from '../src/sms/infrastructure/fake/fake-sms.outbox';
 
+import {
+    asRecord,
+    httpServer,
+    requiredArray,
+    requiredRecord,
+    requiredString,
+    responseRecord,
+} from './http-test-helpers';
+
 import type { INestApplication } from '@nestjs/common';
 
 const phone = '+221781234567';
@@ -53,7 +62,7 @@ integration('full fake-provider phone authentication journey', () => {
     });
 
     afterAll(async () => {
-        await app?.close();
+        await app.close();
         await cleanPhoneState(prisma, phone);
         await prisma.$transaction(async (transaction) => {
             await transaction.smsDelivery.deleteMany({
@@ -72,61 +81,68 @@ integration('full fake-provider phone authentication journey', () => {
     });
 
     it('keeps OTP temporary and completes all session and legal boundaries', async () => {
-        const firstIssue = await request(app.getHttpAdapter().getInstance())
+        const firstIssue = await request(httpServer(app))
             .post('/v1/auth/otp/requests')
             .send({ phone, installationId, pendingPromoCode: 'PROMO-ORIGINAL' });
+        const firstIssueBody = responseRecord(firstIssue);
+        const firstChallengeId = requiredString(firstIssueBody, 'challengeId');
         expect(firstIssue.status, JSON.stringify(firstIssue.body)).toBe(202);
-        challengeIds.push(firstIssue.body.challengeId);
+        challengeIds.push(firstChallengeId);
         await expectNoDurableIdentity(prisma, phone);
 
         await new Promise((resolve) => setTimeout(resolve, 1_100));
-        const resend = await request(app.getHttpAdapter().getInstance())
-            .post(`/v1/auth/otp/requests/${firstIssue.body.challengeId}/resend`)
+        const resend = await request(httpServer(app))
+            .post(`/v1/auth/otp/requests/${firstChallengeId}/resend`)
             .send({ phone, installationId, pendingPromoCode: 'PROMO-REPLACED' });
+        const resendBody = responseRecord(resend);
+        const resendChallengeId = requiredString(resendBody, 'challengeId');
         expect(resend.status, JSON.stringify(resend.body)).toBe(202);
-        challengeIds.push(resend.body.challengeId);
+        challengeIds.push(resendChallengeId);
         const firstOtp = outbox.latestFor(phone);
-        expect(firstOtp?.correlationId).toBe(resend.body.challengeId);
+        expect(firstOtp?.correlationId).toBe(resendChallengeId);
 
-        const verified = await request(app.getHttpAdapter().getInstance()).post('/v1/auth/otp/verifications').send({
-            challengeId: resend.body.challengeId,
+        const verified = await request(httpServer(app)).post('/v1/auth/otp/verifications').send({
+            challengeId: resendChallengeId,
             phone,
             code: firstOtp?.otp,
             installationId,
         });
+        const verifiedBody = responseRecord(verified);
         expect(verified.status, JSON.stringify(verified.body)).toBe(200);
-        expect(verified.body.nextStep).toBe('completeRegistration');
+        expect(verifiedBody.nextStep).toBe('completeRegistration');
         await expectNoDurableIdentity(prisma, phone);
 
-        const registrationAuthorization = verified.body.registrationAuthorization as string;
+        const registrationAuthorization = requiredString(verifiedBody, 'registrationAuthorization');
         for (const pendingPromoCode of ['PROMO-FINAL', null]) {
-            const context = await request(app.getHttpAdapter().getInstance())
+            const context = await request(httpServer(app))
                 .patch('/v1/auth/registration/context')
                 .set('x-registration-authorization', registrationAuthorization)
                 .send({ pendingPromoCode });
             expect(context.status, context.text).toBe(204);
         }
 
-        const legal = await request(app.getHttpAdapter().getInstance())
+        const legal = await request(httpServer(app))
             .get('/v1/legal/documents/current')
             .set('x-registration-authorization', registrationAuthorization);
+        const legalBody = responseRecord(legal);
         expect(legal.status).toBe(200);
-        expect(legal.body.documents.map((document: { id: string }) => document.id).sort()).toEqual(
-            [...v1DocumentIds].sort(),
-        );
+        expect(documentIds(legalBody)).toEqual([...v1DocumentIds].sort());
 
         const complete = () =>
-            request(app.getHttpAdapter().getInstance())
+            request(httpServer(app))
                 .post('/v1/auth/registration/complete')
                 .set('x-registration-authorization', registrationAuthorization)
                 .set('idempotency-key', 'phase8-registration-completion')
                 .send({
-                    setVersion: legal.body.setVersion,
+                    setVersion: requiredString(legalBody, 'setVersion'),
                     acceptedDocumentIds: v1DocumentIds,
                     installationId,
                 });
         const firstCompletion = await complete();
         const repeatedCompletion = await complete();
+        const firstCompletionBody = responseRecord(firstCompletion);
+        const firstRefreshToken = requiredString(firstCompletionBody, 'refreshToken');
+        const firstRefreshExpiresAt = requiredString(firstCompletionBody, 'refreshExpiresAt');
         expect(firstCompletion.status, JSON.stringify(firstCompletion.body)).toBe(200);
         expect(repeatedCompletion.status).toBe(200);
         expect(repeatedCompletion.text).toBe(firstCompletion.text);
@@ -136,58 +152,61 @@ integration('full fake-provider phone authentication journey', () => {
         await expect(prisma.legalAcceptance.count({ where: { userId: user.id } })).resolves.toBe(2);
         await expect(prisma.userSession.count({ where: { userId: user.id } })).resolves.toBe(1);
 
-        const refresh = await request(app.getHttpAdapter().getInstance())
+        const refresh = await request(httpServer(app))
             .post('/v1/auth/sessions/refresh')
-            .send({ refreshToken: firstCompletion.body.refreshToken });
+            .send({ refreshToken: firstRefreshToken });
+        const refreshBody = responseRecord(refresh);
         expect(refresh.status).toBe(200);
-        expect(refresh.body.refreshToken).not.toBe(firstCompletion.body.refreshToken);
-        expect(refresh.body.refreshExpiresAt).toBe(firstCompletion.body.refreshExpiresAt);
+        expect(refreshBody.refreshToken).not.toBe(firstRefreshToken);
+        expect(refreshBody.refreshExpiresAt).toBe(firstRefreshExpiresAt);
 
-        const replay = await request(app.getHttpAdapter().getInstance())
+        const replay = await request(httpServer(app))
             .post('/v1/auth/sessions/refresh')
-            .send({ refreshToken: firstCompletion.body.refreshToken });
+            .send({ refreshToken: firstRefreshToken });
+        const replayError = requiredRecord(responseRecord(replay), 'error');
         expect(replay.status).toBe(401);
-        expect(replay.body.error.code).toBe('REFRESH_REPLAYED');
+        expect(replayError.code).toBe('REFRESH_REPLAYED');
 
         const v2DocumentIds = await replaceCurrentLegalSet(prisma, 'phase8-v2');
         await new Promise((resolve) => setTimeout(resolve, 1_100));
-        const nextIssue = await request(app.getHttpAdapter().getInstance())
-            .post('/v1/auth/otp/requests')
-            .send({ phone, installationId });
+        const nextIssue = await request(httpServer(app)).post('/v1/auth/otp/requests').send({ phone, installationId });
+        const nextIssueBody = responseRecord(nextIssue);
+        const nextChallengeId = requiredString(nextIssueBody, 'challengeId');
         expect(nextIssue.status, JSON.stringify(nextIssue.body)).toBe(202);
-        challengeIds.push(nextIssue.body.challengeId);
+        challengeIds.push(nextChallengeId);
         const nextOtp = outbox.latestFor(phone);
-        const staleLogin = await request(app.getHttpAdapter().getInstance()).post('/v1/auth/otp/verifications').send({
-            challengeId: nextIssue.body.challengeId,
+        const staleLogin = await request(httpServer(app)).post('/v1/auth/otp/verifications').send({
+            challengeId: nextChallengeId,
             phone,
             code: nextOtp?.otp,
             installationId,
         });
+        const staleLoginBody = responseRecord(staleLogin);
         expect(staleLogin.status).toBe(200);
-        expect(staleLogin.body.nextStep).toBe('acceptLegal');
+        expect(staleLoginBody.nextStep).toBe('acceptLegal');
 
-        const staleAuthorization = staleLogin.body.registrationAuthorization as string;
-        const currentLegal = await request(app.getHttpAdapter().getInstance())
+        const staleAuthorization = requiredString(staleLoginBody, 'registrationAuthorization');
+        const currentLegal = await request(httpServer(app))
             .get('/v1/legal/documents/current')
             .set('x-registration-authorization', staleAuthorization);
-        expect(currentLegal.body.documents.map((document: { id: string }) => document.id).sort()).toEqual(
-            [...v2DocumentIds].sort(),
-        );
+        const currentLegalBody = responseRecord(currentLegal);
+        expect(documentIds(currentLegalBody)).toEqual([...v2DocumentIds].sort());
 
-        const accepted = await request(app.getHttpAdapter().getInstance())
+        const accepted = await request(httpServer(app))
             .post('/v1/auth/legal/acceptances')
             .set('x-registration-authorization', staleAuthorization)
             .set('idempotency-key', 'phase8-stale-legal-acceptance')
             .send({
-                setVersion: currentLegal.body.setVersion,
+                setVersion: requiredString(currentLegalBody, 'setVersion'),
                 acceptedDocumentIds: v2DocumentIds,
                 installationId,
             });
+        const acceptedBody = responseRecord(accepted);
         expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
 
-        const logout = await request(app.getHttpAdapter().getInstance())
+        const logout = await request(httpServer(app))
             .delete('/v1/auth/sessions/current')
-            .set('authorization', `Bearer ${accepted.body.accessToken}`);
+            .set('authorization', `Bearer ${requiredString(acceptedBody, 'accessToken')}`);
         expect(logout.status).toBe(204);
 
         await expect(prisma.user.count({ where: { phoneE164: phone } })).resolves.toBe(1);
@@ -195,6 +214,12 @@ integration('full fake-provider phone authentication journey', () => {
         await expect(prisma.userSession.count({ where: { userId: user.id } })).resolves.toBe(2);
     }, 30_000);
 });
+
+function documentIds(body: Readonly<Record<string, unknown>>): string[] {
+    return requiredArray(body, 'documents')
+        .map((document) => requiredString(asRecord(document, 'legal document'), 'id'))
+        .sort();
+}
 
 async function expectNoDurableIdentity(prisma: PrismaClient, phoneE164: string) {
     const user = await prisma.user.findUnique({ where: { phoneE164 } });

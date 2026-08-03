@@ -14,6 +14,7 @@ import {
 } from 'rxjs';
 
 import { AuthApiError, type AuthApi, type OtpVerified } from '../../api/auth-api';
+import { createRuntimeId } from '../../common/create-runtime-id';
 
 import type {
     RegistrationAuthorizationStorage,
@@ -208,8 +209,5 @@ export class RegistrationFlowService implements RegistrationCommands {
 }
 
 function createIdempotencyKey(): string {
-    return (
-        globalThis.crypto?.randomUUID?.() ??
-        `registration-${Date.now().toString(36)}-${performance.now().toString(36).replace('.', '')}`
-    );
+    return createRuntimeId('registration');
 }

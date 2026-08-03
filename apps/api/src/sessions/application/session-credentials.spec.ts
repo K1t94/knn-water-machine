@@ -81,11 +81,11 @@ describe('session credentials', () => {
         });
         const persisted = repository.createInitialInTransaction.mock.calls[0]?.[1];
 
-        expect(persisted?.refreshTokenDigest).toBe('d'.repeat(64));
+        expect(persisted.refreshTokenDigest).toBe('d'.repeat(64));
         expect(JSON.stringify(persisted)).not.toContain(credentials.refreshToken);
-        expect(persisted?.expiresAt.getTime() - persisted.createdAt!.getTime()).toBe(60 * 86_400_000);
-        expect(persisted?.createdAt?.getTime()).toBeGreaterThanOrEqual(before);
-        expect(credentials.refreshExpiresAt).toBe(persisted?.expiresAt.toISOString());
+        expect(persisted.expiresAt.getTime() - persisted.createdAt!.getTime()).toBe(60 * 86_400_000);
+        expect(persisted.createdAt?.getTime()).toBeGreaterThanOrEqual(before);
+        expect(credentials.refreshExpiresAt).toBe(persisted.expiresAt.toISOString());
     });
 });
 

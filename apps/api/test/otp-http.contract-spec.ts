@@ -7,6 +7,8 @@ import { AuthService } from '../src/auth/application/auth.service';
 import { AuthController } from '../src/auth/http/auth.controller';
 import { OtpApplicationError, OtpService } from '../src/otp/application/otp.service';
 
+import { httpServer } from './http-test-helpers';
+
 import type { INestApplication } from '@nestjs/common';
 
 describe('OTP HTTP contract', () => {
@@ -41,7 +43,7 @@ describe('OTP HTTP contract', () => {
     afterEach(() => app.close());
 
     it('validates request DTOs before application code', async () => {
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .post('/v1/auth/otp/requests')
             .send({ phone: '+22177', installationId: 'short', unexpected: true });
         expect(response.status).toBe(400);
@@ -55,7 +57,7 @@ describe('OTP HTTP contract', () => {
             expiresAt: new Date('2030-01-01T00:05:00.000Z'),
             resendAvailableAt: new Date('2030-01-01T00:01:00.000Z'),
         });
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .post('/v1/auth/otp/requests')
             .set('x-request-id', 'request-1')
             .send({ phone: '+221771234567', installationId: 'installation-0001' });
@@ -71,7 +73,7 @@ describe('OTP HTTP contract', () => {
 
     it('returns stable safe errors and retry timing', async () => {
         otp.resend.mockRejectedValue(new OtpApplicationError('RATE_LIMITED', 42));
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .post('/v1/auth/otp/requests/00000000-0000-4000-8000-000000000001/resend')
             .set('x-request-id', 'request-2')
             .send({ phone: '+221771234567', installationId: 'installation-0001' });
@@ -99,7 +101,7 @@ describe('OTP HTTP contract', () => {
             registrationAuthorization: 'opaque-registration-authorization',
             expiresAt: new Date('2030-01-01T00:15:00.000Z'),
         });
-        const response = await request(app.getHttpAdapter().getInstance()).post('/v1/auth/otp/verifications').send({
+        const response = await request(httpServer(app)).post('/v1/auth/otp/verifications').send({
             challengeId: '00000000-0000-4000-8000-000000000001',
             phone: '+221771234567',
             code: '123456',

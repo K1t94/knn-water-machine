@@ -2,8 +2,6 @@ import { SmsProviderError } from '../../application/sms-error';
 
 import { mapOrangeError, mapOrangeResponse } from './orange-error-mapper';
 
-import type { OrangeOAuthResponse } from './orange.dto';
-
 export interface OrangeOAuthConfig {
     clientId: string;
     clientSecret: string;
@@ -63,27 +61,33 @@ export class OrangeOAuthClient {
         }
         if (!response.ok) throw (await mapOrangeResponse(response, 'oauth')).error;
 
-        let payload: OrangeOAuthResponse;
+        let payload: unknown;
         try {
-            payload = (await response.json()) as OrangeOAuthResponse;
+            payload = await response.json();
         } catch {
             throw new SmsProviderError('TEMPORARY_PROVIDER_FAILURE', true);
         }
-        const expiresIn = Number(payload.expires_in);
+        if (typeof payload !== 'object' || payload === null) {
+            throw new SmsProviderError('TEMPORARY_PROVIDER_FAILURE', true);
+        }
+        const tokenType: unknown = Reflect.get(payload, 'token_type');
+        const accessToken: unknown = Reflect.get(payload, 'access_token');
+        const expiresIn = Number(Reflect.get(payload, 'expires_in'));
         if (
-            payload.token_type?.toLowerCase() !== 'bearer' ||
-            typeof payload.access_token !== 'string' ||
-            !payload.access_token ||
+            typeof tokenType !== 'string' ||
+            tokenType.toLowerCase() !== 'bearer' ||
+            typeof accessToken !== 'string' ||
+            !accessToken ||
             !Number.isFinite(expiresIn) ||
             expiresIn <= 0
         ) {
             throw new SmsProviderError('TEMPORARY_PROVIDER_FAILURE', true);
         }
         this.cached = {
-            token: payload.access_token,
+            token: accessToken,
             usableUntil: this.now() + Math.max(0, expiresIn - (this.config.safetySkewSeconds ?? 30)) * 1_000,
         };
-        return payload.access_token;
+        return accessToken;
     }
 }
 

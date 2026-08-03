@@ -537,7 +537,7 @@ when its diagnostics are correct, warm-median overhead is no more than the great
 of 1 second or 10 percent of baseline, and cold overhead is no more than the
 greater of 2 seconds or 15 percent of baseline.
 
-### Phase 7 Cleanup Results
+### Phase 7 Cleanup Baseline
 
 The reviewed ESLint fixers updated imports and removed unnecessary assertions in
 23 mobile and 70 API files. Four non-fixable import-order/duplicate cases were
@@ -552,9 +552,8 @@ OAuth client is manually constructed rather than decorator-injected. No schema,
 migration, API contract, OTP, registration, legal, session, SMS, or navigation
 behavior was changed.
 
-Normal lint now reports 158 errors in 33 files and no warnings. These findings
-are intentionally deferred rather than hidden or changed without behavioral
-context:
+At the end of Phase 7, normal lint reported 158 errors in 33 files and no
+warnings. That historical baseline drove the typed boundary cleanup in Phase 8:
 
 | Deferred rule                                       | Count |
 | --------------------------------------------------- | ----: |
@@ -568,34 +567,38 @@ context:
 | `@typescript-eslint/no-misused-promises`            |     1 |
 | `@typescript-eslint/no-unnecessary-type-parameters` |     1 |
 
-The last type-parameter finding is retained because changing an existing public
-generic signature is not a mechanical lint-only edit. Promise, unsafe-value,
-and condition findings require boundary intent and focused regression tests.
+These findings were not suppressed. Phase 8 resolved them with typed boundary
+helpers, explicit Promise ownership, type-proven condition cleanup, and focused
+regression tests.
 
-### Fix Idempotence And Formatter
+### Phase 8 Convergence Results
 
-`pnpm lint:fix` was run twice. Both runs returned `1` for the same 158
-non-fixable errors, and the complete diff stat was identical after each run, so
-the safe fixer is idempotent. `pnpm format:check` returned `1` both before and
-after with the same 231-file historical formatting baseline. The cleanup did
-not introduce a formatter oscillation; broad formatting of those existing files
-is outside this lint-policy feature.
+The mobile and API findings now resolve without global rule weakening or product
+behavior changes. Untyped storage, HTTP, JSON, mock, Redis, and provider
+boundaries are narrowed before use; scheduler and provider Promises have
+explicit ownership. Test-only HTTP response helpers preserve the original
+assertions while avoiding unsafe access to Supertest payloads.
+
+`pnpm format:check` now passes for the whole repository. ESLint remains
+responsible for correctness and code-quality diagnostics, while Prettier remains
+the independent formatting authority; no formatting rule was added to ESLint.
 
 ### Final Command Matrix
 
-Measured on the Phase 1 environment without ESLint cache:
+Measured after Phase 8 without ESLint cache:
 
-| Command                | Exit | Elapsed | Final expectation                                                |
+| Command                | Exit | Elapsed | Final result                                                     |
 | ---------------------- | ---: | ------: | ---------------------------------------------------------------- |
-| `pnpm lint:mobile`     |    1 | 10.13 s | 15 deferred errors make the check fail                           |
-| `pnpm lint:api`        |    1 | 15.53 s | 143 deferred errors make the check fail                          |
-| `pnpm lint`            |    1 | 24.94 s | 158 deferred errors make the repository check fail               |
-| `pnpm lint:rules:test` |    0 | 97.19 s | All 13 controlled rule cases pass with exact diagnostic matching |
+| `pnpm lint:mobile`     |    0 | 12.44 s | Mobile production, tests, and configuration files are clean      |
+| `pnpm lint:api`        |    0 | 16.27 s | API production, tests, and configuration files are clean         |
+| `pnpm lint`            |    0 | 18.22 s | Root orchestration checks both applications successfully         |
+| `pnpm lint:rules:test` |    0 | 78.02 s | All 13 controlled rule cases pass with exact diagnostic matching |
 
-The non-zero application results prove the command exit contract but mean the
-clean-code success conditions in SC-001 and SC-003 are not yet met. The root
-timing remains below the 30-second SC-004 threshold, and each application scope
-remains faster than the root scope.
+SC-001 and SC-003 are met: all normal lint scopes return zero, while the fixture
+harness confirms that registered invalid examples return non-zero with the
+expected rule IDs. The 18.22-second root run remains below the 30-second SC-004
+threshold, and each application-specific command remains suitable for local and
+CI feedback.
 
 ### Regression Validation
 
@@ -605,26 +608,33 @@ remains faster than the root scope.
 | API typecheck                     | Pass                                                |
 | Mobile `phone-auth-flow.test.tsx` | 5 tests pass                                        |
 | Focused feature-002 API suites    | 20 tests pass; 1 environment-dependent test skipped |
-| `pnpm build:api`                  | Pass                                                |
-| `pnpm build:mobile:js`            | Pass; iOS and Android bundles export successfully   |
+| Repository formatter check        | Pass                                                |
+| Controlled ESLint fixture matrix  | 13 cases pass                                       |
 
 The focused API run required normal host socket permissions because the sandbox
-rejected Supertest's local listener with `EPERM`; the approved rerun passed.
-No file under `specs/002-phone-otp-auth/` was edited.
+rejected Supertest's local listener with `EPERM`; the identical approved rerun
+passed. The skipped phone-auth integration case requires its documented Redis
+and PostgreSQL environment flags and is not counted as a lint or regression
+success. The earlier full API regression run passed 43 files and 166 tests, with
+27 infrastructure-dependent tests skipped. No file under
+`specs/002-phone-otp-auth/` was edited.
 
 ### Deferred Gaps And Final Audit
 
-- The 158 findings above remain real lint failures; no useful rule was disabled
-  or downgraded to make existing code appear clean.
+- No normal-scope ESLint findings remain; no useful rule was disabled or
+  downgraded to obtain the clean result.
 - `import/no-cycle` remains disabled only because its measured overhead failed
   both retention gates; deterministic boundaries and review remain mandatory.
 - Native accessibility, controller thinness, Nest metadata intent, internal
   feature-layer direction, and broad Observable lifecycle ownership remain
   review/test responsibilities for the reasons recorded in Phases 4 and 5.
-- The repository-wide Prettier baseline remains independently non-zero and must
-  be handled as a separate formatting cleanup rather than folded into ESLint.
-- SC-001, SC-003, and the formatter's independent clean-state contract remain
-  open until the deferred lint and historical formatting baselines are resolved.
+- Dynamic React Native style intent remains a review concern; inline styles are
+  not globally forbidden because that would create low-value false positives.
+- Environment-backed Redis, PostgreSQL, and live-provider integration coverage
+  remains conditional on its explicit test flags. Skips are reported separately
+  and never treated as static-analysis success.
+- SC-001, SC-003, SC-004, and the formatter's independent clean-state contract
+  are satisfied by the Phase 8 command evidence above.
 
 ## Accessibility Negative Control
 

@@ -12,7 +12,11 @@ describe('AuthRetentionService', () => {
 
     it('deletes only terminal session history and 30-day delivery records after locking', async () => {
         const transaction = transactionMock(true);
-        const prisma = { $transaction: vi.fn((work) => work(transaction)) };
+        const prisma = {
+            $transaction: vi.fn((work: (value: ReturnType<typeof transactionMock>) => Promise<unknown>) =>
+                work(transaction),
+            ),
+        };
         const service = new AuthRetentionService(prisma as never);
         const result = await service.run(new Date('2030-04-01T03:00:00.000Z'));
         expect(transaction.userSession.deleteMany).toHaveBeenCalledWith({
@@ -30,7 +34,9 @@ describe('AuthRetentionService', () => {
     it('performs no deletion when the PostgreSQL lock is unavailable', async () => {
         const transaction = transactionMock(false);
         const service = new AuthRetentionService({
-            $transaction: vi.fn((work) => work(transaction)),
+            $transaction: vi.fn((work: (value: ReturnType<typeof transactionMock>) => Promise<unknown>) =>
+                work(transaction),
+            ),
         } as never);
         await expect(service.run()).resolves.toEqual({
             acquired: false,

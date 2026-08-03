@@ -48,7 +48,7 @@ describePostgres('AuthRetentionService PostgreSQL lock', () => {
                 const [row] = await transaction.$queryRaw<Array<{ acquired: boolean }>>`
         SELECT pg_try_advisory_xact_lock(${RETENTION_LOCK_ID}) AS acquired
       `;
-                expect(row?.acquired).toBe(true);
+                expect(row.acquired).toBe(true);
                 reportAcquired();
                 await release;
             },
@@ -75,7 +75,7 @@ describePostgres('AuthRetentionService PostgreSQL lock', () => {
             const [row] = await transaction.$queryRaw<Array<{ acquired: boolean }>>`
         SELECT pg_try_advisory_xact_lock(${RETENTION_LOCK_ID}) AS acquired
       `;
-            return row?.acquired;
+            return row.acquired;
         });
         expect(lockAvailable).toBe(true);
     });

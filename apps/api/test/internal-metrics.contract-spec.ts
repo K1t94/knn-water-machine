@@ -6,6 +6,8 @@ import { AuthMetrics } from '../src/observability/auth-metrics';
 import { InternalMetricsGuard } from '../src/observability/internal-metrics.guard';
 import { MetricsController } from '../src/observability/metrics.controller';
 
+import { httpServer } from './http-test-helpers';
+
 import type { INestApplication } from '@nestjs/common';
 
 const token = Buffer.alloc(32, 9).toString('base64url');
@@ -21,12 +23,12 @@ describe('internal metrics HTTP contract', () => {
 
     it('returns 404 when disabled', async () => {
         app = await createApp(false);
-        await request(app.getHttpAdapter().getInstance()).get('/internal/metrics').expect(404);
+        await request(httpServer(app)).get('/internal/metrics').expect(404);
     });
 
     it('requires the independent bearer and ignores spoofed proxy headers', async () => {
         app = await createApp(true);
-        const server = app.getHttpAdapter().getInstance();
+        const server = httpServer(app);
         await request(server).get('/internal/metrics').expect(401);
         await request(server)
             .get('/internal/metrics')
@@ -38,7 +40,7 @@ describe('internal metrics HTTP contract', () => {
 
     it('returns Prometheus text only for the valid bearer', async () => {
         app = await createApp(true);
-        const response = await request(app.getHttpAdapter().getInstance())
+        const response = await request(httpServer(app))
             .get('/internal/metrics')
             .set('Authorization', `Bearer ${token}`)
             .expect(200);
