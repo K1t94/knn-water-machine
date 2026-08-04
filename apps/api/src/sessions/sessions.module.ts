@@ -12,6 +12,6 @@ import { SessionsRepository } from './infrastructure/postgres/sessions.repositor
     imports: [JwtModule.register({})],
     controllers: [SessionsController],
     providers: [AccessTokenService, RefreshTokenService, SessionsRepository, SessionsService, AccessSessionGuard],
-    exports: [SessionsService, AccessSessionGuard],
+    exports: [AccessTokenService, SessionsRepository, SessionsService, AccessSessionGuard],
 })
 export class SessionsModule {}

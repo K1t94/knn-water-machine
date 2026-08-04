@@ -13,6 +13,7 @@ import { OtpStore } from '../src/auth/stores/otp.store';
 import { RegistrationStore } from '../src/auth/stores/registration.store';
 import { SessionStore } from '../src/auth/stores/session.store';
 import { RootNavigator } from '../src/navigation/RootNavigator';
+import { WalletStore } from '../src/wallet/stores/wallet.store';
 
 import type { AuthFlowContextValue } from '../src/auth/auth-flow.context';
 import type { RegistrationFlowContextValue } from '../src/auth/registration-flow.context';
@@ -20,6 +21,7 @@ import type { OtpCommands } from '../src/auth/services/otp-flow.service';
 import type { RegistrationCommands } from '../src/auth/services/registration-flow.service';
 import type { RegistrationAuthorizationStorage } from '../src/auth/storage/registration-authorization.storage';
 import type { SessionStorage } from '../src/auth/storage/session.storage';
+import type { WalletCompositionRoot } from '../src/wallet/wallet-composition-root';
 
 const flowContexts = vi.hoisted<{
     auth: unknown;
@@ -203,9 +205,20 @@ describe('phone authentication component flow', () => {
 
     it('renders startup, offline recovery, and authenticated routes from SessionStore', async () => {
         const root = createRoot();
+        const walletStore = new WalletStore();
+        const walletToken = walletStore.beginInitialLoad();
+        walletStore.finishInitialLoad(
+            walletToken,
+            { balanceMl: '0', balanceLiters: '0.000', observedAt: '2026-08-06T10:00:00.000Z' },
+            { items: [], nextCursor: null, hasMore: false },
+        );
+        const wallet = {
+            store: walletStore,
+            flow: { retry: vi.fn(), refresh: vi.fn(), loadNextPage: vi.fn() },
+        } as unknown as WalletCompositionRoot;
         const retry = vi.spyOn(root.sessionFlow, 'retryRestore').mockImplementation(() => undefined);
         const logout = vi.spyOn(root.sessionFlow, 'logout').mockImplementation(() => undefined);
-        const view = await render(<RootNavigator api={{} as AuthApi} root={root} />);
+        const view = await render(<RootNavigator api={{} as AuthApi} root={root} wallet={wallet} />);
 
         expect(JSON.stringify(view.toJSON())).toContain('ActivityIndicator');
         await act(() => root.sessionStore.markOffline(credentials.refreshExpiresAt));
@@ -216,8 +229,8 @@ describe('phone authentication component flow', () => {
         expect(retry).toHaveBeenCalledOnce();
 
         await act(() => root.sessionStore.authenticate(credentials));
-        expect(view.getByText('Session restored')).toBeTruthy();
-        const logoutButton = view.getByText('Log out').parent!;
+        expect(view.getByText('Mon eau')).toBeTruthy();
+        const logoutButton = view.getByLabelText('Se déconnecter');
         expect(logoutButton.props.accessibilityRole).toBe('button');
         await fireEvent.press(logoutButton);
         expect(logout).toHaveBeenCalledOnce();

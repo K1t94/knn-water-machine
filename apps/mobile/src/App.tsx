@@ -5,6 +5,7 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-nativ
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { FetchAuthApi } from './api/auth-api';
+import { FetchWalletApi } from './api/wallet-api';
 import { AuthCompositionRoot } from './auth/auth-composition-root';
 import { AuthRootProvider } from './auth/auth.context';
 import {
@@ -14,6 +15,7 @@ import {
 import { DevelopmentWebSessionStorage, SecureSessionStorage } from './auth/storage/session.storage';
 import { getOrCreateInstallationId } from './device/installation-id';
 import { RootNavigator } from './navigation/RootNavigator';
+import { WalletCompositionRoot } from './wallet/wallet-composition-root';
 
 const apiUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000') as string;
 
@@ -21,22 +23,30 @@ export default function App(): React.JSX.Element {
     const [composition, setComposition] = useState<{
         api: FetchAuthApi;
         root: AuthCompositionRoot;
+        wallet: WalletCompositionRoot;
     }>();
     const [initializationFailed, setInitializationFailed] = useState(false);
 
     useEffect(() => {
         let createdRoot: AuthCompositionRoot | undefined;
+        let createdWallet: WalletCompositionRoot | undefined;
         const subscription = getOrCreateInstallationId().subscribe({
             next: (id) => {
                 const api = new FetchAuthApi(apiUrl, id);
                 createdRoot = new AuthCompositionRoot(api, createSessionStorage(), createRegistrationStorage());
-                setComposition({ api, root: createdRoot });
+                createdWallet = new WalletCompositionRoot(
+                    new FetchWalletApi(apiUrl),
+                    createdRoot.sessionStore,
+                    createdRoot.sessionFlow,
+                );
+                setComposition({ api, root: createdRoot, wallet: createdWallet });
                 createdRoot.sessionFlow.restore();
             },
             error: () => setInitializationFailed(true),
         });
         return () => {
             subscription.unsubscribe();
+            createdWallet?.dispose();
             createdRoot?.dispose();
         };
     }, []);
@@ -60,7 +70,7 @@ export default function App(): React.JSX.Element {
     return (
         <SafeAreaProvider>
             <AuthRootProvider root={composition.root}>
-                <RootNavigator api={composition.api} root={composition.root} />
+                <RootNavigator api={composition.api} root={composition.root} wallet={composition.wallet} />
             </AuthRootProvider>
         </SafeAreaProvider>
     );

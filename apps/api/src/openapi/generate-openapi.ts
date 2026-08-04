@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 
 import { RedisService } from '../infrastructure/redis/redis.service';
 
-const SNAPSHOT_PATH = resolve(process.cwd(), '../../specs/002-phone-otp-auth/contracts/openapi.generated.json');
+const SNAPSHOT_PATH = resolve(process.cwd(), '../../specs/004-water-wallet-ledger/contracts/openapi.generated.json');
 const toolingSecret = Buffer.alloc(32, 1).toString('base64url');
 
 function configureToolingEnvironment(): void {
@@ -60,8 +60,8 @@ async function generateDocument(): Promise<string> {
 
     try {
         const config = new DocumentBuilder()
-            .setTitle('KAYNANN Phone OTP Authentication API')
-            .setDescription('Generated NestJS contract snapshot for drift detection.')
+            .setTitle('KAYNANN API')
+            .setDescription('Generated aggregate NestJS contract snapshot for drift detection.')
             .setVersion('0.1.0')
             .addServer('/api')
             .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'AccessBearer')

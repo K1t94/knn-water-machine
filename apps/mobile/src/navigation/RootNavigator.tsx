@@ -4,14 +4,24 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { AuthFlowProvider } from '../auth/auth-flow.context';
 import { RegistrationFlowProvider, useRegistrationFlow } from '../auth/registration-flow.context';
+import { WalletScreen } from '../wallet/screens/WalletScreen';
 
 import { AuthNavigator, authNavigationRef } from './AuthNavigator';
 
 import type { AuthApi, OtpVerified } from '../api/auth-api';
 import type { AuthCompositionRoot } from '../auth/auth-composition-root';
+import type { WalletCompositionRoot } from '../wallet/wallet-composition-root';
 
 export const RootNavigator = observer(
-    ({ api, root }: { api: AuthApi; root: AuthCompositionRoot }): React.JSX.Element => {
+    ({
+        api,
+        root,
+        wallet,
+    }: {
+        api: AuthApi;
+        root: AuthCompositionRoot;
+        wallet: WalletCompositionRoot;
+    }): React.JSX.Element => {
         const route = root.sessionStore.rootRoute;
         if (route === 'loading') {
             return (
@@ -37,18 +47,7 @@ export const RootNavigator = observer(
         }
         if (route === 'main') {
             return (
-                <Centered>
-                    <Text style={styles.brand}>KAYNANN</Text>
-                    <Text style={styles.title}>Session restored</Text>
-                    <Text style={styles.body}>The main application is available without another OTP.</Text>
-                    <Pressable
-                        accessibilityRole="button"
-                        onPress={() => root.sessionFlow.logout()}
-                        style={styles.button}
-                    >
-                        <Text style={styles.buttonText}>Log out</Text>
-                    </Pressable>
-                </Centered>
+                <WalletScreen commands={wallet.flow} onLogout={() => root.sessionFlow.logout()} store={wallet.store} />
             );
         }
         return (
@@ -90,13 +89,6 @@ const styles = StyleSheet.create({
         marginTop: 8,
         maxWidth: 320,
         textAlign: 'center',
-    },
-    brand: {
-        color: '#0068d9',
-        fontSize: 14,
-        fontWeight: '800',
-        letterSpacing: 2,
-        marginBottom: 16,
     },
     button: {
         backgroundColor: '#0068d9',

@@ -1,0 +1,84 @@
+  Создай dependency-ordered список задач для реализации wallet/ledger-домена на основе:
+
+  - specs/004-water-wallet-ledger/spec.md;
+  - specs/004-water-wallet-ledger/plan.md;
+  - specs/004-water-wallet-ledger/research.md;
+  - specs/004-water-wallet-ledger/data-model.md;
+  - specs/004-water-wallet-ledger/contracts/openapi.yaml;
+  - specs/004-water-wallet-ledger/contracts/internal-wallet-commands.md;
+  - specs/004-water-wallet-ledger/quickstart.md.
+
+  Перед созданием tasks.md также изучи:
+
+  - AGENTS.md;
+  - .codex/docs/context-policy.md;
+  - .codex/docs/ai-style-memory.md;
+  - .specify/memory/constitution.md;
+  - актуальную структуру apps/api и apps/mobile;
+  - Prisma schema и существующие миграции;
+  - релевантный код и тесты specs/002-phone-otp-auth;
+  - итоговую ESLint-конфигурацию specs/003-eslint-rules.
+
+  Раздели задачи на небольшие проверяемые Phase, соответствующие plan.md:
+
+  1. Domain contracts и Prisma migration.
+  2. Transactional repository и внутренние команды.
+  3. Authenticated read API.
+  4. Mobile API, MobX store и RxJS flow.
+  5. Минимальное wallet-представление.
+  6. Regression и acceptance validation.
+
+  Для каждой задачи:
+
+  - укажи уникальный ID;
+  - укажи точные создаваемые или изменяемые файлы;
+  - отметь зависимости от предыдущих задач;
+  - используй [P] только для действительно параллельных задач;
+  - привяжи пользовательские задачи к US1–US4;
+  - добавь минимальную команду проверки;
+  - сформулируй наблюдаемый критерий завершения;
+  - отдели real PostgreSQL integration tests от unit-тестов.
+
+  Обязательно включи задачи для:
+
+  - Prisma-моделей и reviewed migration;
+  - SQL CHECK constraints, indexes и immutable ledger trigger;
+  - проверки миграции на пустой и существующей feature-002 базе;
+  - exact bigint/millilitre domain types;
+  - глобальной database-backed idempotency;
+  - conditional atomic credit/debit;
+  - insufficient balance и overflow;
+  - concurrent debit и same-business-key credit tests;
+  - transaction rollback;
+  - compensation origin validation;
+  - ledger reconciliation;
+  - controller DTO, response shaping и AccessSessionGuard;
+  - GET /v1/wallet/balance;
+  - GET /v1/wallet/operations;
+  - cursor pagination;
+  - OpenAPI contract и отсутствие публичных write endpoints;
+  - cold Observable WalletApi;
+  - MobX WalletStore;
+  - disposable RxJS WalletFlowService;
+  - очистку и отмену запросов при logout/session replacement;
+  - stale-request protection;
+  - loading, empty, loaded, error, refresh и pagination UI;
+  - regression tests задачи 002-phone-otp-auth;
+  - lint, format, typecheck, tests, builds и migration validation.
+
+  Порядок задач должен позволять выполнять их по фазам через
+  $speckit-implement.
+
+  Не устанавливай зависимости и не изменяй production-код на этапе генерации
+  tasks.md.
+
+  Не добавляй referral, бонусные правила, платежи, source buckets, bonus-first
+  списание, QR, MQTT, автоматы или dispensing.
+
+  Не изменяй OTP, регистрацию, legal, SMS и session-контракты.
+
+  Не заменяй проверки PostgreSQL concurrency, transaction rollback, unique/check
+  constraints и trigger поведения mock- или SQLite-тестами.
+
+  Если задача требует потенциально меняющего поведение решения, вынеси её как
+  явный blocker или отложенное решение, а не принимай скрыто.

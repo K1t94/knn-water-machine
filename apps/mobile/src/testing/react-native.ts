@@ -5,6 +5,7 @@ export const Text = 'Text';
 export const TextInput = 'TextInput';
 export const View = 'View';
 export const ScrollView = 'ScrollView';
+export const RefreshControl = 'RefreshControl';
 export const Platform = { OS: 'ios' };
 export const Linking = {
     getInitialURL: async (): Promise<string | null> => null,

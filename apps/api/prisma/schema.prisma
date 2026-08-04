@@ -61,6 +61,11 @@ enum SmsFailureCategory {
   TEMPORARY_PROVIDER_FAILURE
 }
 
+enum WalletDirection {
+  CREDIT
+  DEBIT
+}
+
 model User {
   id               String            @id @default(uuid()) @db.Uuid
   phoneE164        String            @unique @db.VarChar(16)
@@ -70,6 +75,7 @@ model User {
   updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
   legalAcceptances LegalAcceptance[]
   sessions         UserSession[]
+  waterWallet      WaterWallet?
 
   @@index([status, id])
 }
@@ -165,4 +171,34 @@ model SmsDelivery {
 
   @@unique([provider, providerMessageId])
   @@index([status, updatedAt])
+}
+
+model WaterWallet {
+  userId    String              @id @db.Uuid
+  balanceMl BigInt              @default(0)
+  createdAt DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime            @updatedAt @db.Timestamptz(3)
+  user      User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  entries   WalletLedgerEntry[]
+}
+
+model WalletLedgerEntry {
+  id                 String              @id @default(uuid()) @db.Uuid
+  sequence           BigInt              @unique @default(autoincrement())
+  walletUserId       String              @db.Uuid
+  businessEventKey   String              @unique @db.VarChar(200)
+  direction          WalletDirection
+  amountMl           BigInt
+  operationKind      String              @db.VarChar(64)
+  source             String              @db.VarChar(64)
+  balanceAfterMl     BigInt
+  occurredAt         DateTime            @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  compensatesEntryId String?             @db.Uuid
+  wallet             WaterWallet         @relation(fields: [walletUserId], references: [userId], onDelete: Restrict)
+  compensates        WalletLedgerEntry?  @relation("WalletLedgerCompensation", fields: [compensatesEntryId], references: [id], onDelete: Restrict)
+  compensations      WalletLedgerEntry[] @relation("WalletLedgerCompensation")
+
+  @@index([walletUserId, sequence(sort: Desc)])
+  @@index([compensatesEntryId])
 }

@@ -1,0 +1,213 @@
+openapi: 3.1.0
+info:
+    title: Kaynann Water Wallet Read API
+    version: 1.0.0
+    description: >-
+        Authenticated read-only contracts for feature 004. Balance-changing wallet
+        commands are intentionally absent.
+paths:
+    /v1/wallet/balance:
+        get:
+            operationId: getCurrentWaterBalance
+            summary: Get the authenticated user's exact water balance
+            security:
+                - bearerAuth: []
+            responses:
+                '200':
+                    description: Current exact balance; missing physical wallet is zero.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WalletBalanceResponse'
+                '401':
+                    $ref: '#/components/responses/Unauthorized'
+                '503':
+                    $ref: '#/components/responses/TemporarilyUnavailable'
+    /v1/wallet/operations:
+        get:
+            operationId: listCurrentUserWaterOperations
+            summary: List the authenticated user's committed wallet operations
+            security:
+                - bearerAuth: []
+            parameters:
+                - name: limit
+                  in: query
+                  required: false
+                  description: Page size; defaults to 20 and cannot exceed 100.
+                  schema:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                      default: 20
+                - name: cursor
+                  in: query
+                  required: false
+                  description: Opaque exclusive continuation cursor from a prior page.
+                  schema:
+                      type: string
+                      minLength: 1
+                      maxLength: 512
+            responses:
+                '200':
+                    description: Deterministic newest-first page.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WalletHistoryResponse'
+                '400':
+                    description: Invalid limit or cursor.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WalletErrorResponse'
+                            examples:
+                                invalidCursor:
+                                    value:
+                                        error:
+                                            code: WALLET_CURSOR_INVALID
+                                            message: The wallet history cursor is invalid.
+                                            retryable: false
+                                            requestId: req_01K1MZ93RB3THXY9A01P6PQN5K
+                '401':
+                    $ref: '#/components/responses/Unauthorized'
+                '503':
+                    $ref: '#/components/responses/TemporarilyUnavailable'
+components:
+    securitySchemes:
+        bearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+    responses:
+        Unauthorized:
+            description: Existing session authentication failure contract.
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/WalletErrorResponse'
+        TemporarilyUnavailable:
+            description: Wallet storage is temporarily unavailable.
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/WalletErrorResponse'
+                    example:
+                        error:
+                            code: WALLET_TEMPORARILY_UNAVAILABLE
+                            message: Wallet data is temporarily unavailable.
+                            retryable: true
+                            requestId: req_01K1MZ93RB3THXY9A01P6PQN5K
+    schemas:
+        CanonicalMilliliters:
+            type: string
+            pattern: '^(0|[1-9][0-9]{0,18})$'
+            description: Exact non-negative whole millilitres; clients must not parse as a floating number.
+            examples:
+                - '12500'
+        PositiveMilliliters:
+            type: string
+            pattern: '^[1-9][0-9]{0,18}$'
+            description: Exact positive whole millilitres.
+            examples:
+                - '5000'
+        WalletBalanceResponse:
+            type: object
+            additionalProperties: false
+            required:
+                - balanceMl
+                - balanceLiters
+                - observedAt
+            properties:
+                balanceMl:
+                    $ref: '#/components/schemas/CanonicalMilliliters'
+                balanceLiters:
+                    type: string
+                    pattern: '^(0|[1-9][0-9]*)\.[0-9]{3}$'
+                    description: Presentation-only exact litre string derived from balanceMl.
+                    examples:
+                        - '12.500'
+                observedAt:
+                    type: string
+                    format: date-time
+        WalletHistoryResponse:
+            type: object
+            additionalProperties: false
+            required:
+                - items
+                - nextCursor
+                - hasMore
+            properties:
+                items:
+                    type: array
+                    maxItems: 100
+                    items:
+                        $ref: '#/components/schemas/WalletHistoryEntry'
+                nextCursor:
+                    oneOf:
+                        - type: string
+                          minLength: 1
+                          maxLength: 512
+                        - type: 'null'
+                hasMore:
+                    type: boolean
+        WalletHistoryEntry:
+            type: object
+            additionalProperties: false
+            required:
+                - id
+                - direction
+                - amountMl
+                - operationKind
+                - source
+                - occurredAt
+                - recordedAt
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                direction:
+                    type: string
+                    enum:
+                        - CREDIT
+                        - DEBIT
+                amountMl:
+                    $ref: '#/components/schemas/PositiveMilliliters'
+                operationKind:
+                    type: string
+                    pattern: '^[A-Z][A-Z0-9_]{1,63}$'
+                source:
+                    type: string
+                    pattern: '^[A-Z][A-Z0-9_]{1,63}$'
+                occurredAt:
+                    type: string
+                    format: date-time
+                recordedAt:
+                    type: string
+                    format: date-time
+        WalletErrorResponse:
+            type: object
+            additionalProperties: false
+            required:
+                - error
+            properties:
+                error:
+                    type: object
+                    additionalProperties: false
+                    required:
+                        - code
+                        - message
+                        - retryable
+                        - requestId
+                    properties:
+                        code:
+                            type: string
+                            enum:
+                                - REFRESH_INVALID
+                                - WALLET_CURSOR_INVALID
+                                - WALLET_TEMPORARILY_UNAVAILABLE
+                        message:
+                            type: string
+                        retryable:
+                            type: boolean
+                        requestId:
+                            type: string

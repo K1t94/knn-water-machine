@@ -18,7 +18,7 @@
         "lint:rules:test": "node scripts/verify-eslint-rules.mjs",
         "format:check": "prettier --check .",
         "format:write": "exec prettier --write .",
-        "typecheck": "tsc --noEmit",
+        "typecheck": "pnpm --recursive --if-present typecheck",
         "test": "pnpm --recursive --if-present test",
         "build:api": "pnpm --filter @kaynann/api build",
         "build:mobile:js": "pnpm --filter @kaynann/mobile build:js",

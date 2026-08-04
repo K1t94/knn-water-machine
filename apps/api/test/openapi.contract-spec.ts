@@ -18,11 +18,13 @@ type OpenApiDocument = {
     };
 };
 
-const contractsDirectory = resolve(__dirname, '../../../specs/002-phone-otp-auth/contracts');
+const featureTwoContracts = resolve(__dirname, '../../../specs/002-phone-otp-auth/contracts');
+const featureFourContracts = resolve(__dirname, '../../../specs/004-water-wallet-ledger/contracts');
 const generated = JSON.parse(
-    readFileSync(resolve(contractsDirectory, 'openapi.generated.json'), 'utf8'),
+    readFileSync(resolve(featureFourContracts, 'openapi.generated.json'), 'utf8'),
 ) as OpenApiDocument;
-const sourceContract = readFileSync(resolve(contractsDirectory, 'openapi.yaml'), 'utf8');
+const authSourceContract = readFileSync(resolve(featureTwoContracts, 'openapi.yaml'), 'utf8');
+const walletSourceContract = readFileSync(resolve(featureFourContracts, 'openapi.yaml'), 'utf8');
 
 const publicPaths = [
     '/v1/auth/otp/requests',
@@ -43,14 +45,74 @@ function operation(path: string, method: string): OpenApiOperation {
     return result;
 }
 
-describe('generated Phone OTP OpenAPI contract', () => {
-    it('covers every source-contract endpoint without exposing internal metrics', () => {
+describe('generated aggregate OpenAPI contract', () => {
+    it('retains every feature 002 endpoint without exposing internal metrics', () => {
         for (const path of publicPaths) {
             expect(generated.paths).toHaveProperty(path);
-            expect(sourceContract).toContain(`  ${path}:`);
+            expect(authSourceContract).toContain(`  ${path}:`);
         }
 
         expect(generated.paths).not.toHaveProperty('/internal/metrics');
+    });
+
+    it('publishes the feature 004 balance read contract without wallet writes', () => {
+        expect(walletSourceContract).toContain('    /v1/wallet/balance:');
+        const balance = operation('/v1/wallet/balance', 'get');
+
+        expect(balance.security).toContainEqual({ AccessBearer: [] });
+        expect(Object.keys(balance.responses ?? {})).toEqual(['200', '401', '503']);
+        expect(generated.paths['/v1/wallet/balance']).not.toHaveProperty('post');
+        expect(generated.paths['/v1/wallet/balance']).not.toHaveProperty('patch');
+        expect(generated.paths['/v1/wallet/balance']).not.toHaveProperty('delete');
+
+        const response = generated.components.schemas.WalletBalanceResponseDto as {
+            properties: Record<string, { pattern?: string }>;
+            required: string[];
+        };
+        expect(response.required).toEqual(['balanceMl', 'balanceLiters', 'observedAt']);
+        expect(response.properties.balanceMl.pattern).toBe('^(0|[1-9][0-9]{0,18})$');
+        expect(response.properties.balanceLiters.pattern).toBe('^(0|[1-9][0-9]*)\\.[0-9]{3}$');
+    });
+
+    it('publishes owner-scoped wallet history pagination without public write commands', () => {
+        expect(walletSourceContract).toContain('    /v1/wallet/operations:');
+        const history = operation('/v1/wallet/operations', 'get');
+
+        expect(history.security).toContainEqual({ AccessBearer: [] });
+        expect(Object.keys(history.responses ?? {})).toEqual(['200', '400', '401', '503']);
+        expect(history.parameters).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ name: 'limit', required: false }),
+                expect.objectContaining({ name: 'cursor', required: false }),
+            ]),
+        );
+
+        for (const path of Object.keys(generated.paths).filter((path) => path.startsWith('/v1/wallet'))) {
+            expect(Object.keys(generated.paths[path])).toEqual(['get']);
+        }
+        for (const forbidden of ['credit', 'debit', 'compensate', 'adjust']) {
+            expect(Object.keys(generated.paths).join(' ')).not.toContain(`/v1/wallet/${forbidden}`);
+        }
+
+        const response = generated.components.schemas.WalletHistoryResponseDto as {
+            properties: Record<string, unknown>;
+            required: string[];
+        };
+        expect(response.required).toEqual(['items', 'nextCursor', 'hasMore']);
+        expect(Object.keys(response.properties)).toEqual(['hasMore', 'items', 'nextCursor']);
+
+        const entry = generated.components.schemas.WalletHistoryEntryResponseDto as {
+            properties: Record<string, unknown>;
+        };
+        expect(Object.keys(entry.properties)).toEqual([
+            'amountMl',
+            'direction',
+            'id',
+            'occurredAt',
+            'operationKind',
+            'recordedAt',
+            'source',
+        ]);
     });
 
     it('keeps status codes, authorization, and idempotency explicit', () => {

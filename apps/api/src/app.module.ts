@@ -8,6 +8,7 @@ import { RedisModule } from './infrastructure/redis/redis.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SmsModule } from './sms/sms.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
     imports: [
@@ -19,6 +20,7 @@ import { SmsModule } from './sms/sms.module';
         SmsModule,
         AuthModule,
         HealthModule,
+        WalletModule,
     ],
 })
 export class AppModule {}
