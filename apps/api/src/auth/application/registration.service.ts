@@ -5,6 +5,11 @@ import { LegalVersionStaleError, LegalService } from '../../legal/application/le
 import { LegalRepository } from '../../legal/infrastructure/postgres/legal.repository';
 import { AuthMetrics } from '../../observability/auth-metrics';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+    REFERRAL_REGISTRATION_INTEGRATION,
+    type ReferralRegistrationIntegration,
+} from '../../referral/application/referral-registration.integration';
+import { ReferralError } from '../../referral/domain/referral-errors';
 import { SessionsService } from '../../sessions/application/sessions.service';
 import { UsersRepository } from '../../users/infrastructure/postgres/users.repository';
 import {
@@ -15,6 +20,8 @@ import {
 } from '../infrastructure/redis/registration-authorization.store';
 
 import { DependencyUnavailableError } from './auth-application.error';
+
+import type { ReferralEntitlementId } from '../../referral/domain/referral-types';
 
 export interface CompleteRegistrationCommand {
     registrationAuthorization: string;
@@ -37,6 +44,8 @@ export class RegistrationService {
         @Inject(UsersRepository) private readonly users: UsersRepository,
         @Inject(SessionsService) private readonly sessions: SessionsService,
         @Inject(CredentialCryptoService) private readonly crypto: CredentialCryptoService,
+        @Inject(REFERRAL_REGISTRATION_INTEGRATION)
+        private readonly referral: ReferralRegistrationIntegration,
         @Optional() @Inject(AuthMetrics) private readonly metrics?: AuthMetrics,
     ) {}
 
@@ -54,7 +63,8 @@ export class RegistrationService {
             if (
                 error instanceof RegistrationAuthorizationError ||
                 error instanceof LegalVersionStaleError ||
-                error instanceof DependencyUnavailableError
+                error instanceof DependencyUnavailableError ||
+                error instanceof ReferralError
             ) {
                 throw error;
             }
@@ -74,6 +84,11 @@ export class RegistrationService {
         if (authorization.state === 'COMPLETED') {
             return this.registrations.recoverResult(command.registrationAuthorization, command.idempotencyKey);
         }
+
+        const pendingPromoCode = await this.referral.prevalidatePendingPromo(
+            authorization.pendingPromoCode ?? null,
+            authorization.existingUserId,
+        );
 
         let completion = await this.registrations.beginCompletion(
             command.registrationAuthorization,
@@ -104,6 +119,7 @@ export class RegistrationService {
         const acceptedAt = new Date();
         const ipFingerprint = command.ipAddress ? this.crypto.fingerprintIp(command.ipAddress).digest : undefined;
 
+        let referralEntitlementIds: readonly ReferralEntitlementId[] = [];
         await this.prisma.$transaction(
             async (transaction) => {
                 const currentDocuments = await this.legalRepository.currentMandatoryInTransaction(transaction, 'fr-SN');
@@ -112,6 +128,7 @@ export class RegistrationService {
                     command.setVersion,
                     command.acceptedDocumentIds,
                 );
+                const existingUser = await this.users.findByPhoneInTransaction(transaction, authorization.phoneE164);
                 const user = await this.users.upsertConfirmedInTransaction(transaction, {
                     id: completion.userId,
                     phoneE164: authorization.phoneE164,
@@ -137,11 +154,20 @@ export class RegistrationService {
                     installationFingerprint,
                     creationKeyDigest: completion.completionKeyDigest,
                 });
+                const onboarding = await this.referral.completeOnboarding(transaction, {
+                    userId: user.id,
+                    isNewUser: existingUser === null,
+                    pendingPromoCode,
+                    completedAt: acceptedAt,
+                    registrationCompletionId: completion.flowId,
+                });
+                referralEntitlementIds = onboarding.entitlementIds;
             },
             { isolationLevel: 'Serializable' },
         );
 
         await this.registrations.complete(command.registrationAuthorization, completion);
+        await this.referral.deliverAfterCommit(referralEntitlementIds);
         return credentials;
     }
 

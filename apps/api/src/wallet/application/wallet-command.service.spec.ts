@@ -82,9 +82,55 @@ describe('WalletCommandService', () => {
             idempotentReplay: false,
         });
         expect(repository.credit).toHaveBeenCalledWith(
-            expect.objectContaining({ direction: 'CREDIT', compensatesEntryId: null, amountMl: 1_000n }),
+            expect.objectContaining({
+                direction: 'CREDIT',
+                compensatesEntryId: null,
+                amountMl: 1_000n,
+                ownerStatusPolicy: 'ACTIVE_ONLY',
+            }),
         );
     });
+
+    it('preserves the explicit existing-owner policy for a committed internal credit', async () => {
+        vi.mocked(repository.credit).mockResolvedValue({
+            entryId: ENTRY_ID,
+            balanceAfterMl: parseWalletBalance(1_000n),
+            idempotentReplay: false,
+        });
+
+        await service.credit(credit({ ownerStatusPolicy: 'EXISTING_OWNER' }));
+
+        expect(repository.credit).toHaveBeenCalledWith(
+            expect.objectContaining({ ownerStatusPolicy: 'EXISTING_OWNER' }),
+        );
+    });
+
+    it.each(['REFERRAL_WELCOME_BONUS', 'REFERRAL_INVITER_BONUS'] as const)(
+        'accepts referral credit classifier %s without a wallet-domain allowlist',
+        async (operationKind) => {
+            vi.mocked(repository.credit).mockResolvedValue({
+                entryId: ENTRY_ID,
+                balanceAfterMl: parseWalletBalance(1_000n),
+                idempotentReplay: false,
+            });
+
+            await service.credit(
+                credit({
+                    businessEventKey: 'referral_bonus:11111111-1111-4111-8111-111111111111',
+                    operationKind,
+                    source: 'REFERRAL_PROGRAM',
+                }),
+            );
+
+            expect(repository.credit).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    businessEventKey: 'referral_bonus:11111111-1111-4111-8111-111111111111',
+                    operationKind,
+                    source: 'REFERRAL_PROGRAM',
+                }),
+            );
+        },
+    );
 
     it('returns the repository idempotent result without creating a second outcome', async () => {
         const replay = {

@@ -12,6 +12,10 @@
         "test": "vitest run",
         "openapi:generate": "ts-node --transpile-only src/openapi/generate-openapi.ts --write",
         "openapi:check": "ts-node --transpile-only src/openapi/generate-openapi.ts --check",
+        "referral:provision": "ts-node --transpile-only src/referral/cli/provision-referrals.ts",
+        "referral:recover": "ts-node --transpile-only src/referral/cli/recover-referral-bonuses.ts",
+        "test:referral:postgres": "RUN_POSTGRES_INTEGRATION=1 vitest run test/referral-*.integration-spec.ts",
+        "test:referral:registration": "RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 vitest run test/referral-registration.integration-spec.ts",
         "db:generate": "prisma generate",
         "db:migrate": "prisma migrate deploy",
         "db:migrate:dev": "prisma migrate dev"

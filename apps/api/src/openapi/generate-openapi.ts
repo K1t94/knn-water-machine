@@ -8,7 +8,7 @@ import { Test } from '@nestjs/testing';
 
 import { RedisService } from '../infrastructure/redis/redis.service';
 
-const SNAPSHOT_PATH = resolve(process.cwd(), '../../specs/004-water-wallet-ledger/contracts/openapi.generated.json');
+const SNAPSHOT_PATH = resolve(process.cwd(), '../../specs/005-referral-program/contracts/openapi.generated.json');
 const toolingSecret = Buffer.alloc(32, 1).toString('base64url');
 
 function configureToolingEnvironment(): void {
@@ -29,22 +29,23 @@ function configureToolingEnvironment(): void {
 }
 
 function stableJson(value: unknown): string {
-    const seen = new WeakSet<object>();
+    return `${JSON.stringify(sortForStableJson(value, new WeakSet<object>()), null, 2)}\n`;
+}
 
-    return `${JSON.stringify(
-        value,
-        (_key, item: unknown) => {
-            if (item && typeof item === 'object' && !Array.isArray(item)) {
-                if (seen.has(item)) {
-                    throw new Error('OpenAPI document contains a circular reference');
-                }
-                seen.add(item);
-                return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right)));
-            }
-            return item;
-        },
-        2,
-    )}\n`;
+function sortForStableJson(value: unknown, ancestors: WeakSet<object>): unknown {
+    if (!value || typeof value !== 'object') return value;
+    if (ancestors.has(value)) throw new Error('OpenAPI document contains a circular reference');
+
+    ancestors.add(value);
+    const sorted = Array.isArray(value)
+        ? value.map((item) => sortForStableJson(item, ancestors))
+        : Object.fromEntries(
+              Object.entries(value)
+                  .sort(([left], [right]) => left.localeCompare(right))
+                  .map(([key, item]) => [key, sortForStableJson(item, ancestors)]),
+          );
+    ancestors.delete(value);
+    return sorted;
 }
 
 async function generateDocument(): Promise<string> {

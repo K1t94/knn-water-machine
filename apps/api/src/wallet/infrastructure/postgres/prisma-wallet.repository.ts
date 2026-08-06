@@ -117,7 +117,7 @@ export class PrismaWalletRepository implements WalletMutationRepository, WalletQ
         try {
             return await this.prisma.$transaction(
                 async (transaction) => {
-                    await this.assertActiveOwner(transaction, command.userId);
+                    await this.assertEligibleOwner(transaction, command.userId, command.ownerStatusPolicy);
                     await this.createProjectionIfAbsent(transaction, command.userId);
 
                     const existing = await transaction.walletLedgerEntry.findUnique({
@@ -178,14 +178,19 @@ export class PrismaWalletRepository implements WalletMutationRepository, WalletQ
         }
     }
 
-    private async assertActiveOwner(transaction: TransactionClient, userId: string): Promise<void> {
+    private async assertEligibleOwner(
+        transaction: TransactionClient,
+        userId: string,
+        ownerStatusPolicy: ValidatedWalletCommand['ownerStatusPolicy'],
+    ): Promise<void> {
         const users = await transaction.$queryRaw<LockedUserRow[]>(Prisma.sql`
             SELECT "id", "status"::text
             FROM "User"
             WHERE "id" = ${userId}::uuid
             FOR UPDATE
         `);
-        if (users[0]?.status !== 'ACTIVE') {
+        const owner = users.at(0);
+        if (owner === undefined || (ownerStatusPolicy === 'ACTIVE_ONLY' && owner.status !== 'ACTIVE')) {
             throw new WalletError('WALLET_USER_INELIGIBLE', 'The user is not eligible for wallet operations.');
         }
     }

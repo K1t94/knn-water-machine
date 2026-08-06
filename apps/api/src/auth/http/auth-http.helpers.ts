@@ -6,6 +6,7 @@ import { LegalVersionStaleError } from '../../legal/application/legal.service';
 import { OtpApplicationError } from '../../otp/application/otp.service';
 import { PhoneValidationError } from '../../otp/domain/senegal-phone';
 import { OtpAbuseError } from '../../otp/infrastructure/redis/otp-abuse-guard';
+import { ReferralError } from '../../referral/domain/referral-errors';
 import { SessionError } from '../../sessions/application/sessions.service';
 import { DependencyUnavailableError } from '../application/auth-application.error';
 import { RegistrationAuthorizationError } from '../infrastructure/redis/registration-authorization.store';
@@ -80,6 +81,12 @@ function mapError(error: unknown): AuthErrorCode | undefined {
     if (error instanceof PhoneValidationError) return error.code;
     if (error instanceof OtpApplicationError || error instanceof OtpAbuseError) return error.code;
     if (error instanceof LegalVersionStaleError) return error.code;
+    if (error instanceof ReferralError) {
+        if (error.code === 'REFERRAL_CODE_UNAVAILABLE' || error.code === 'REFERRAL_SELF_NOT_ALLOWED') return error.code;
+        if (error.code === 'REFERRAL_ALREADY_ATTACHED' || error.code === 'REFERRAL_ELIGIBILITY_CLOSED')
+            return error.code;
+        return 'REFERRAL_SERVICE_UNAVAILABLE';
+    }
     if (error instanceof SessionError) return error.code;
     if (error instanceof RegistrationAuthorizationError) {
         if (error.code === 'REGISTRATION_AUTH_EXPIRED') return error.code;
@@ -93,6 +100,8 @@ function statusFor(code: AuthErrorCode): number {
     if (code === 'RATE_LIMITED' || code === 'SMS_PROVIDER_RATE_LIMITED') return 429;
     if (code.startsWith('REGISTRATION_AUTH_') || code.startsWith('REFRESH_')) return 401;
     if (code === 'LEGAL_VERSION_STALE') return 409;
+    if (code === 'REFERRAL_CODE_UNAVAILABLE') return 400;
+    if (code.startsWith('REFERRAL_')) return code === 'REFERRAL_SERVICE_UNAVAILABLE' ? 503 : 409;
     if (code.startsWith('OTP_')) return code === 'OTP_INVALID' ? 400 : 409;
     if (code.startsWith('SMS_') || code === 'DEPENDENCY_UNAVAILABLE' || code === 'SESSION_CREATION_FAILED') return 503;
     return 400;
@@ -105,6 +114,7 @@ function isRetryable(code: AuthErrorCode): boolean {
         'SMS_TIMEOUT',
         'SMS_TEMPORARILY_UNAVAILABLE',
         'DEPENDENCY_UNAVAILABLE',
+        'REFERRAL_SERVICE_UNAVAILABLE',
     ].includes(code);
 }
 
@@ -121,6 +131,10 @@ function productMessage(code: AuthErrorCode): string {
         REGISTRATION_AUTH_INVALID: 'Registration authorization is invalid.',
         REGISTRATION_AUTH_EXPIRED: 'Confirm your phone number again.',
         LEGAL_VERSION_STALE: 'Legal documents changed. Review the latest versions.',
+        REFERRAL_CODE_UNAVAILABLE: 'Referral code is unavailable.',
+        REFERRAL_SELF_NOT_ALLOWED: 'You cannot use your own referral code.',
+        REFERRAL_ALREADY_ATTACHED: 'A referral code is already attached.',
+        REFERRAL_ELIGIBILITY_CLOSED: 'A referral code can no longer be applied.',
         REFRESH_INVALID: 'The session is invalid. Sign in again.',
         REFRESH_EXPIRED: 'The session has expired. Sign in again.',
         REFRESH_REPLAYED: 'The session was revoked. Sign in again.',

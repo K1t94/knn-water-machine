@@ -1,5 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { observer } from 'mobx-react-lite';
+import { useEffect } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AuthFlowProvider } from '../auth/auth-flow.context';
@@ -7,18 +8,22 @@ import { RegistrationFlowProvider, useRegistrationFlow } from '../auth/registrat
 import { WalletScreen } from '../wallet/screens/WalletScreen';
 
 import { AuthNavigator, authNavigationRef } from './AuthNavigator';
+import { MainNavigator } from './MainNavigator';
 
 import type { AuthApi, OtpVerified } from '../api/auth-api';
 import type { AuthCompositionRoot } from '../auth/auth-composition-root';
+import type { ReferralCompositionRoot } from '../referral/referral-composition-root';
 import type { WalletCompositionRoot } from '../wallet/wallet-composition-root';
 
 export const RootNavigator = observer(
     ({
         api,
+        referral,
         root,
         wallet,
     }: {
         api: AuthApi;
+        referral?: ReferralCompositionRoot;
         root: AuthCompositionRoot;
         wallet: WalletCompositionRoot;
     }): React.JSX.Element => {
@@ -46,22 +51,39 @@ export const RootNavigator = observer(
             );
         }
         if (route === 'main') {
-            return (
-                <WalletScreen commands={wallet.flow} onLogout={() => root.sessionFlow.logout()} store={wallet.store} />
-            );
+            if (referral) {
+                return <MainNavigator onLogout={() => root.sessionFlow.logout()} referral={referral} wallet={wallet} />;
+            }
+            return <FallbackWallet wallet={wallet} onLogout={() => root.sessionFlow.logout()} />;
         }
         return (
             <NavigationContainer ref={authNavigationRef}>
                 <RegistrationFlowProvider api={api} root={root}>
-                    <AuthScope api={api} root={root} />
+                    <AuthScope api={api} referral={referral} root={root} />
                 </RegistrationFlowProvider>
             </NavigationContainer>
         );
     },
 );
 
-function AuthScope({ api, root }: { api: AuthApi; root: AuthCompositionRoot }): React.JSX.Element {
+function FallbackWallet({ wallet, onLogout }: { wallet: WalletCompositionRoot; onLogout(): void }): React.JSX.Element {
+    return <WalletScreen commands={wallet.flow} onLogout={onLogout} store={wallet.store} />;
+}
+
+function AuthScope({
+    api,
+    referral,
+    root,
+}: {
+    api: AuthApi;
+    referral: ReferralCompositionRoot | undefined;
+    root: AuthCompositionRoot;
+}): React.JSX.Element {
     const registration = useRegistrationFlow();
+    useEffect(() => {
+        if (!referral) return undefined;
+        return referral.linkCoordinator.bindRegistration(registration.commands);
+    }, [referral, registration.commands]);
     const onVerified = (result: OtpVerified): void => {
         registration.commands.begin(result);
     };

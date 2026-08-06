@@ -20,11 +20,13 @@ type OpenApiDocument = {
 
 const featureTwoContracts = resolve(__dirname, '../../../specs/002-phone-otp-auth/contracts');
 const featureFourContracts = resolve(__dirname, '../../../specs/004-water-wallet-ledger/contracts');
+const featureFiveContracts = resolve(__dirname, '../../../specs/005-referral-program/contracts');
 const generated = JSON.parse(
-    readFileSync(resolve(featureFourContracts, 'openapi.generated.json'), 'utf8'),
+    readFileSync(resolve(featureFiveContracts, 'openapi.generated.json'), 'utf8'),
 ) as OpenApiDocument;
 const authSourceContract = readFileSync(resolve(featureTwoContracts, 'openapi.yaml'), 'utf8');
 const walletSourceContract = readFileSync(resolve(featureFourContracts, 'openapi.yaml'), 'utf8');
+const referralSourceContract = readFileSync(resolve(featureFiveContracts, 'openapi.yaml'), 'utf8');
 
 const publicPaths = [
     '/v1/auth/otp/requests',
@@ -113,6 +115,69 @@ describe('generated aggregate OpenAPI contract', () => {
             'recordedAt',
             'source',
         ]);
+    });
+
+    it('publishes authenticated referral reads and natural-idempotency application', () => {
+        for (const path of ['/v1/referrals/me', '/v1/referrals/applications', '/v1/referrals/invitations']) {
+            expect(generated.paths).toHaveProperty(path);
+            expect(referralSourceContract).toContain(`  ${path}:`);
+        }
+
+        const me = operation('/v1/referrals/me', 'get');
+        const application = operation('/v1/referrals/applications', 'post');
+        const invitations = operation('/v1/referrals/invitations', 'get');
+
+        for (const endpoint of [me, application, invitations]) {
+            expect(endpoint.security).toContainEqual({ AccessBearer: [] });
+        }
+        expect(Object.keys(me.responses ?? {})).toEqual(['200', '401', '503']);
+        expect(Object.keys(application.responses ?? {})).toEqual(['200', '400', '401', '409', '503']);
+        expect(Object.keys(invitations.responses ?? {})).toEqual(['200', '400', '401', '503']);
+        expect(application.parameters ?? []).not.toContainEqual(expect.objectContaining({ name: 'Idempotency-Key' }));
+        expect(invitations.parameters).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ name: 'limit', required: false }),
+                expect.objectContaining({ name: 'cursor', required: false }),
+            ]),
+        );
+    });
+
+    it('exposes only privacy-safe referral response fields and no operational endpoints', () => {
+        const summary = generated.components.schemas.MyReferralResponseDto as {
+            properties: Record<string, unknown>;
+        };
+        expect(Object.keys(summary.properties)).toEqual([
+            'attachedPromoCode',
+            'creditedInvitationCount',
+            'creditedInviterBonusMl',
+            'currentInviterRewardMl',
+            'eligibility',
+            'promoCode',
+            'referralLink',
+        ]);
+
+        const invitation = generated.components.schemas.ReferralInvitationResponseDto as {
+            properties: Record<string, unknown>;
+        };
+        expect(Object.keys(invitation.properties)).toEqual([
+            'appliedAt',
+            'creditedAmountMl',
+            'id',
+            'inviteeLabel',
+            'status',
+        ]);
+
+        const allPaths = Object.keys(generated.paths).join(' ');
+        for (const forbidden of [
+            '/v1/referrals/recovery',
+            '/v1/referrals/provisioning',
+            '/v1/referrals/eligibility',
+            '/v1/referrals/bonuses',
+            '/v1/referrals/relationships',
+            '/v1/wallet/credit',
+        ]) {
+            expect(allPaths).not.toContain(forbidden);
+        }
     });
 
     it('keeps status codes, authorization, and idempotency explicit', () => {

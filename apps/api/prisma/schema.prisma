@@ -66,16 +66,44 @@ enum WalletDirection {
   DEBIT
 }
 
+enum ReferralApplicationChannel {
+  REGISTRATION
+  POST_REGISTRATION
+}
+
+enum ReferralEligibilityStatus {
+  OPEN
+  ATTACHED
+  CLOSED
+}
+
+enum ReferralBonusKind {
+  WELCOME
+  INVITER
+}
+
+enum ReferralBonusDeliveryStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  PERMANENT_FAILURE
+}
+
 model User {
-  id               String            @id @default(uuid()) @db.Uuid
-  phoneE164        String            @unique @db.VarChar(16)
-  phoneConfirmedAt DateTime          @db.Timestamptz(3)
-  status           UserStatus        @default(ACTIVE)
-  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
-  legalAcceptances LegalAcceptance[]
-  sessions         UserSession[]
-  waterWallet      WaterWallet?
+  id                        String                     @id @default(uuid()) @db.Uuid
+  phoneE164                 String                     @unique @db.VarChar(16)
+  phoneConfirmedAt          DateTime                   @db.Timestamptz(3)
+  status                    UserStatus                 @default(ACTIVE)
+  createdAt                 DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime                   @updatedAt @db.Timestamptz(3)
+  legalAcceptances          LegalAcceptance[]
+  sessions                  UserSession[]
+  waterWallet               WaterWallet?
+  referralPromoCode         ReferralPromoCode?
+  referralEligibility       ReferralEligibility?
+  invitedReferrals          ReferralRelationship[]     @relation("ReferralInviter")
+  receivedReferral          ReferralRelationship?      @relation("ReferralInvitee")
+  referralBonusEntitlements ReferralBonusEntitlement[]
 
   @@index([status, id])
 }
@@ -183,22 +211,83 @@ model WaterWallet {
 }
 
 model WalletLedgerEntry {
-  id                 String              @id @default(uuid()) @db.Uuid
-  sequence           BigInt              @unique @default(autoincrement())
-  walletUserId       String              @db.Uuid
-  businessEventKey   String              @unique @db.VarChar(200)
-  direction          WalletDirection
-  amountMl           BigInt
-  operationKind      String              @db.VarChar(64)
-  source             String              @db.VarChar(64)
-  balanceAfterMl     BigInt
-  occurredAt         DateTime            @db.Timestamptz(3)
-  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
-  compensatesEntryId String?             @db.Uuid
-  wallet             WaterWallet         @relation(fields: [walletUserId], references: [userId], onDelete: Restrict)
-  compensates        WalletLedgerEntry?  @relation("WalletLedgerCompensation", fields: [compensatesEntryId], references: [id], onDelete: Restrict)
-  compensations      WalletLedgerEntry[] @relation("WalletLedgerCompensation")
+  id                  String                    @id @default(uuid()) @db.Uuid
+  sequence            BigInt                    @unique @default(autoincrement())
+  walletUserId        String                    @db.Uuid
+  businessEventKey    String                    @unique @db.VarChar(200)
+  direction           WalletDirection
+  amountMl            BigInt
+  operationKind       String                    @db.VarChar(64)
+  source              String                    @db.VarChar(64)
+  balanceAfterMl      BigInt
+  occurredAt          DateTime                  @db.Timestamptz(3)
+  createdAt           DateTime                  @default(now()) @db.Timestamptz(3)
+  compensatesEntryId  String?                   @db.Uuid
+  wallet              WaterWallet               @relation(fields: [walletUserId], references: [userId], onDelete: Restrict)
+  compensates         WalletLedgerEntry?        @relation("WalletLedgerCompensation", fields: [compensatesEntryId], references: [id], onDelete: Restrict)
+  compensations       WalletLedgerEntry[]       @relation("WalletLedgerCompensation")
+  referralEntitlement ReferralBonusEntitlement?
 
   @@index([walletUserId, sequence(sort: Desc)])
   @@index([compensatesEntryId])
+}
+
+model ReferralPromoCode {
+  userId    String   @id @db.Uuid
+  code      String   @unique @db.VarChar(12)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model ReferralEligibility {
+  userId           String                    @id @db.Uuid
+  status           ReferralEligibilityStatus @default(OPEN)
+  closedByEventKey String?                   @unique @db.VarChar(200)
+  closedAt         DateTime?                 @db.Timestamptz(3)
+  createdAt        DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                  @updatedAt @db.Timestamptz(3)
+  user             User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model ReferralRelationship {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  sequence           BigInt                     @unique @default(autoincrement())
+  inviterUserId      String                     @db.Uuid
+  inviteeUserId      String                     @unique @db.Uuid
+  channel            ReferralApplicationChannel
+  appliedAt          DateTime                   @default(now()) @db.Timestamptz(3)
+  createdAt          DateTime                   @default(now()) @db.Timestamptz(3)
+  inviter            User                       @relation("ReferralInviter", fields: [inviterUserId], references: [id], onDelete: Restrict)
+  invitee            User                       @relation("ReferralInvitee", fields: [inviteeUserId], references: [id], onDelete: Restrict)
+  inviterEntitlement ReferralBonusEntitlement?
+
+  @@index([inviterUserId, sequence(sort: Desc)])
+}
+
+model ReferralBonusEntitlement {
+  id                     String                      @id @default(uuid()) @db.Uuid
+  kind                   ReferralBonusKind
+  beneficiaryUserId      String                      @db.Uuid
+  relationshipId         String?                     @unique @db.Uuid
+  amountMl               BigInt
+  walletBusinessEventKey String                      @unique @db.VarChar(200)
+  walletOperationKind    String                      @db.VarChar(64)
+  walletSource           String                      @db.VarChar(64)
+  occurredAt             DateTime                    @db.Timestamptz(3)
+  status                 ReferralBonusDeliveryStatus @default(PENDING)
+  walletLedgerEntryId    String?                     @unique @db.Uuid
+  attemptCount           Int                         @default(0)
+  nextAttemptAt          DateTime                    @db.Timestamptz(3)
+  leaseOwner             String?                     @db.Uuid
+  leaseExpiresAt         DateTime?                   @db.Timestamptz(3)
+  lastErrorCode          String?                     @db.VarChar(64)
+  deliveredAt            DateTime?                   @db.Timestamptz(3)
+  createdAt              DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime                    @updatedAt @db.Timestamptz(3)
+  beneficiary            User                        @relation(fields: [beneficiaryUserId], references: [id], onDelete: Restrict)
+  relationship           ReferralRelationship?       @relation(fields: [relationshipId], references: [id], onDelete: Restrict)
+  walletLedgerEntry      WalletLedgerEntry?          @relation(fields: [walletLedgerEntryId], references: [id], onDelete: Restrict)
+
+  @@index([status, nextAttemptAt])
+  @@index([beneficiaryUserId, createdAt(sort: Desc)])
 }

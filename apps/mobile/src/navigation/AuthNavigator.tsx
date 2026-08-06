@@ -2,15 +2,11 @@ import { createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
-import { Linking } from 'react-native';
-import { Observable, defer, from, merge } from 'rxjs';
 
 import { useRegistrationFlow } from '../auth/registration-flow.context';
 import { LegalAcceptanceScreen } from '../auth/screens/LegalAcceptanceScreen';
 import { OtpVerificationScreen } from '../auth/screens/OtpVerificationScreen';
 import { PhoneEntryScreen } from '../auth/screens/PhoneEntryScreen';
-
-import { parsePendingPromo } from './pending-promo-deep-link';
 
 export type AuthStackParams = {
     Phone: undefined;
@@ -22,23 +18,7 @@ const Stack = createNativeStackNavigator<AuthStackParams>();
 export const authNavigationRef = createNavigationContainerRef<AuthStackParams>();
 
 export const AuthNavigator = observer((): React.JSX.Element => {
-    const { commands, store } = useRegistrationFlow();
-    useEffect(() => {
-        const openedUrls = new Observable<string>((subscriber) => {
-            const subscription = Linking.addEventListener('url', ({ url }) => {
-                subscriber.next(url);
-            });
-            return () => subscription.remove();
-        });
-        const subscription = merge(
-            defer(() => from(Linking.getInitialURL())),
-            openedUrls,
-        ).subscribe((url) => {
-            const promo = parsePendingPromo(url);
-            if (promo) commands.setPendingPromoCode(promo);
-        });
-        return () => subscription.unsubscribe();
-    }, [commands]);
+    const { store } = useRegistrationFlow();
 
     useEffect(() => {
         const syncRegistrationRoute = (): void => {

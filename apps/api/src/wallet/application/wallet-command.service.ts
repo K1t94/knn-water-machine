@@ -28,7 +28,12 @@ export class WalletCommandService {
     public constructor(@Inject(WALLET_REPOSITORY) private readonly repository: WalletMutationRepository) {}
 
     public credit(command: CreditWalletCommand): Promise<WalletCommandResult> {
-        const validated = this.validate(command, 'CREDIT', null) as ValidatedCreditWalletCommand;
+        const validated = this.validate(
+            command,
+            'CREDIT',
+            null,
+            this.creditOwnerStatusPolicy(command),
+        ) as ValidatedCreditWalletCommand;
         if (validated.operationKind === 'COMPENSATION') {
             throw this.invalidEvent();
         }
@@ -36,7 +41,7 @@ export class WalletCommandService {
     }
 
     public debit(command: DebitWalletCommand): Promise<WalletCommandResult> {
-        const validated = this.validate(command, 'DEBIT', null) as ValidatedDebitWalletCommand;
+        const validated = this.validate(command, 'DEBIT', null, 'ACTIVE_ONLY') as ValidatedDebitWalletCommand;
         if (validated.operationKind === 'COMPENSATION') {
             throw this.invalidEvent();
         }
@@ -52,6 +57,7 @@ export class WalletCommandService {
             command,
             'CREDIT',
             command.compensatesEntryId,
+            'ACTIVE_ONLY',
         ) as ValidatedCompensateWalletCommand;
         return this.run(() => this.repository.compensate(validated));
     }
@@ -60,6 +66,7 @@ export class WalletCommandService {
         input: CreditWalletCommand | DebitWalletCommand | CompensateWalletCommand,
         direction: WalletDirection,
         compensatesEntryId: string | null,
+        ownerStatusPolicy: 'ACTIVE_ONLY' | 'EXISTING_OWNER',
     ): ValidatedWalletCommand {
         const command = this.asRecord(input);
         if (!this.isUuid(command.userId) || !(command.occurredAt instanceof Date)) {
@@ -78,6 +85,7 @@ export class WalletCommandService {
             occurredAt: new Date(command.occurredAt.getTime()),
             direction,
             compensatesEntryId,
+            ownerStatusPolicy,
         } as ValidatedWalletCommand;
     }
 
@@ -94,6 +102,17 @@ export class WalletCommandService {
 
     private isUuid(value: unknown): value is string {
         return typeof value === 'string' && UUID_PATTERN.test(value);
+    }
+
+    private creditOwnerStatusPolicy(command: CreditWalletCommand): 'ACTIVE_ONLY' | 'EXISTING_OWNER' {
+        const policy = this.asRecord(command).ownerStatusPolicy;
+        if (policy === undefined) {
+            return 'ACTIVE_ONLY';
+        }
+        if (policy === 'ACTIVE_ONLY' || policy === 'EXISTING_OWNER') {
+            return policy;
+        }
+        throw this.invalidEvent();
     }
 
     private asRecord(value: unknown): Record<string, unknown> {

@@ -9,6 +9,12 @@ export const RefreshControl = 'RefreshControl';
 export const Platform = { OS: 'ios' };
 export const Linking = {
     getInitialURL: async (): Promise<string | null> => null,
+    addEventListener: (_event: 'url', _listener: (event: { url: string }) => void) => ({
+        remove: (): void => undefined,
+    }),
+};
+export const Share = {
+    share: async (): Promise<{ action: string }> => ({ action: 'sharedAction' }),
 };
 
 export const StyleSheet = {

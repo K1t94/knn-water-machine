@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { LegalAcceptanceController, LegalController } from '../legal/http/legal.controller';
 import { LegalModule } from '../legal/legal.module';
 import { OtpModule } from '../otp/otp.module';
+import { ReferralModule } from '../referral/referral.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { UsersModule } from '../users/users.module';
 
@@ -14,7 +15,7 @@ import { AuthController, RegistrationController } from './http/auth.controller';
 import { RegistrationAuthorizationStore } from './infrastructure/redis/registration-authorization.store';
 
 @Module({
-    imports: [OtpModule, UsersModule, LegalModule, SessionsModule],
+    imports: [OtpModule, UsersModule, LegalModule, SessionsModule, ReferralModule],
     controllers: [AuthController, RegistrationController, LegalController, LegalAcceptanceController],
     providers: [
         AuthService,

@@ -1,8 +1,15 @@
 import { z } from 'zod';
 
+import { MAX_REFERRAL_MILLILITRES } from '../referral/domain/referral-types';
+
 const deploymentEnvironments = ['development', 'test', 'staging', 'production'] as const;
 const restrictedEnvironments = new Set<string>(['staging', 'production']);
 const base64UrlPattern = /^[A-Za-z0-9_-]+$/;
+const positiveDecimalPattern = /^[1-9]\d*$/;
+const referralBonusDefaults = {
+    REFERRAL_WELCOME_BONUS_ML: 10_000n,
+    REFERRAL_INVITER_BONUS_ML: 5_000n,
+} as const;
 
 function decodedBase64UrlBytes(value: string): number {
     if (!base64UrlPattern.test(value)) {
@@ -80,6 +87,9 @@ const envSchema = z
         ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().max(900).default(900),
         SESSION_TTL_DAYS: z.coerce.number().int().positive().default(60),
 
+        REFERRAL_WELCOME_BONUS_ML: optionalTrimmedString,
+        REFERRAL_INVITER_BONUS_ML: optionalTrimmedString,
+
         OTP_SENDS_PER_PHONE_HOUR: z.coerce.number().int().positive().default(3),
         OTP_SENDS_PER_PHONE_DAY: z.coerce.number().int().positive().default(6),
         OTP_SENDS_PER_IP_HOUR: z.coerce.number().int().positive().default(20),
@@ -114,6 +124,29 @@ const envSchema = z
         INTERNAL_METRICS_TOKEN: optionalBase64UrlSecret(32),
     })
     .superRefine((env, context) => {
+        for (const field of ['REFERRAL_WELCOME_BONUS_ML', 'REFERRAL_INVITER_BONUS_ML'] as const) {
+            const value = env[field];
+            if (restrictedEnvironments.has(env.APP_ENV) && value === undefined) {
+                context.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [field],
+                    message: 'is required in staging and production',
+                });
+                continue;
+            }
+
+            if (
+                value !== undefined &&
+                (!positiveDecimalPattern.test(value) || BigInt(value) > MAX_REFERRAL_MILLILITRES)
+            ) {
+                context.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [field],
+                    message: `must be a positive whole millilitre value not exceeding ${MAX_REFERRAL_MILLILITRES}`,
+                });
+            }
+        }
+
         if (restrictedEnvironments.has(env.APP_ENV) && env.SMS_PROVIDER === 'fake') {
             context.addIssue({
                 code: z.ZodIssueCode.custom,
@@ -187,7 +220,18 @@ const envSchema = z
                 message: 'is required when metrics are enabled in staging or production',
             });
         }
-    });
+    })
+    .transform((env) => ({
+        ...env,
+        REFERRAL_WELCOME_BONUS_ML:
+            env.REFERRAL_WELCOME_BONUS_ML === undefined
+                ? referralBonusDefaults.REFERRAL_WELCOME_BONUS_ML
+                : BigInt(env.REFERRAL_WELCOME_BONUS_ML),
+        REFERRAL_INVITER_BONUS_ML:
+            env.REFERRAL_INVITER_BONUS_ML === undefined
+                ? referralBonusDefaults.REFERRAL_INVITER_BONUS_ML
+                : BigInt(env.REFERRAL_INVITER_BONUS_ML),
+    }));
 
 export type AppEnv = z.infer<typeof envSchema>;
 

@@ -5,6 +5,7 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-nativ
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { FetchAuthApi } from './api/auth-api';
+import { FetchReferralApi } from './api/referral-api';
 import { FetchWalletApi } from './api/wallet-api';
 import { AuthCompositionRoot } from './auth/auth-composition-root';
 import { AuthRootProvider } from './auth/auth.context';
@@ -15,6 +16,7 @@ import {
 import { DevelopmentWebSessionStorage, SecureSessionStorage } from './auth/storage/session.storage';
 import { getOrCreateInstallationId } from './device/installation-id';
 import { RootNavigator } from './navigation/RootNavigator';
+import { ReferralCompositionRoot } from './referral/referral-composition-root';
 import { WalletCompositionRoot } from './wallet/wallet-composition-root';
 
 const apiUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000') as string;
@@ -22,6 +24,7 @@ const apiUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000') as s
 export default function App(): React.JSX.Element {
     const [composition, setComposition] = useState<{
         api: FetchAuthApi;
+        referral: ReferralCompositionRoot;
         root: AuthCompositionRoot;
         wallet: WalletCompositionRoot;
     }>();
@@ -29,6 +32,7 @@ export default function App(): React.JSX.Element {
 
     useEffect(() => {
         let createdRoot: AuthCompositionRoot | undefined;
+        let createdReferral: ReferralCompositionRoot | undefined;
         let createdWallet: WalletCompositionRoot | undefined;
         const subscription = getOrCreateInstallationId().subscribe({
             next: (id) => {
@@ -39,13 +43,19 @@ export default function App(): React.JSX.Element {
                     createdRoot.sessionStore,
                     createdRoot.sessionFlow,
                 );
-                setComposition({ api, root: createdRoot, wallet: createdWallet });
+                createdReferral = new ReferralCompositionRoot(
+                    new FetchReferralApi(apiUrl),
+                    createdRoot.sessionStore,
+                    createdRoot.sessionFlow,
+                );
+                setComposition({ api, referral: createdReferral, root: createdRoot, wallet: createdWallet });
                 createdRoot.sessionFlow.restore();
             },
             error: () => setInitializationFailed(true),
         });
         return () => {
             subscription.unsubscribe();
+            createdReferral?.dispose();
             createdWallet?.dispose();
             createdRoot?.dispose();
         };
@@ -70,7 +80,12 @@ export default function App(): React.JSX.Element {
     return (
         <SafeAreaProvider>
             <AuthRootProvider root={composition.root}>
-                <RootNavigator api={composition.api} root={composition.root} wallet={composition.wallet} />
+                <RootNavigator
+                    api={composition.api}
+                    referral={composition.referral}
+                    root={composition.root}
+                    wallet={composition.wallet}
+                />
             </AuthRootProvider>
         </SafeAreaProvider>
     );

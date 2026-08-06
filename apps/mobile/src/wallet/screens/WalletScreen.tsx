@@ -10,153 +10,171 @@ interface WalletScreenProps {
     store: WalletStore;
     commands: WalletCommands;
     onLogout(): void;
+    onOpenReferral?(): void;
 }
 
-export const WalletScreen = observer(({ store, commands, onLogout }: WalletScreenProps): React.JSX.Element => {
-    if (store.viewState === 'initial' || store.viewState === 'loading') {
-        return (
-            <SafeAreaView style={styles.safeArea}>
-                <View accessibilityLabel="Chargement du portefeuille" style={styles.centered}>
-                    <ActivityIndicator color="#087f73" size="large" />
-                    <Text style={styles.loadingText}>Chargement de votre eau…</Text>
-                </View>
-            </SafeAreaView>
-        );
-    }
+export const WalletScreen = observer(
+    ({ store, commands, onLogout, onOpenReferral }: WalletScreenProps): React.JSX.Element => {
+        if (store.viewState === 'initial' || store.viewState === 'loading') {
+            return (
+                <SafeAreaView style={styles.safeArea}>
+                    <View accessibilityLabel="Chargement du portefeuille" style={styles.centered}>
+                        <ActivityIndicator color="#087f73" size="large" />
+                        <Text style={styles.loadingText}>Chargement de votre eau…</Text>
+                    </View>
+                </SafeAreaView>
+            );
+        }
 
-    if (store.viewState === 'error') {
-        return (
-            <SafeAreaView style={styles.safeArea}>
-                <View style={styles.centered}>
-                    <Text style={styles.errorEyebrow}>CONNEXION INTERROMPUE</Text>
-                    <Text style={styles.errorTitle}>Votre portefeuille n’a pas pu être chargé.</Text>
-                    <Text accessibilityRole="alert" style={styles.errorBody}>
-                        Vérifiez votre connexion, puis réessayez.
-                    </Text>
-                    {store.error?.retryable ? (
-                        <Pressable
-                            accessibilityLabel="Réessayer de charger le portefeuille"
-                            accessibilityRole="button"
-                            onPress={() => commands.retry()}
-                            style={styles.primaryButton}
-                        >
-                            <Text style={styles.primaryButtonText}>Réessayer</Text>
-                        </Pressable>
-                    ) : null}
-                </View>
-            </SafeAreaView>
-        );
-    }
-
-    const balance = store.balance;
-    if (!balance) return <SafeAreaView style={styles.safeArea} />;
-
-    return (
-        <SafeAreaView style={styles.safeArea}>
-            <View style={styles.header}>
-                <View>
-                    <Text style={styles.brand}>KAYNANN</Text>
-                    <Text style={styles.heading}>Mon eau</Text>
-                </View>
-                <Pressable
-                    accessibilityLabel="Se déconnecter"
-                    accessibilityRole="button"
-                    onPress={onLogout}
-                    style={styles.logoutButton}
-                >
-                    <Text style={styles.logoutText}>Sortir</Text>
-                </Pressable>
-            </View>
-
-            <ScrollView
-                accessibilityLabel="Contenu du portefeuille"
-                contentContainerStyle={styles.content}
-                refreshControl={
-                    <RefreshControl
-                        colors={['#087f73']}
-                        onRefresh={() => commands.refresh()}
-                        refreshing={store.refreshing}
-                        tintColor="#087f73"
-                    />
-                }
-                showsVerticalScrollIndicator={false}
-            >
-                <View style={styles.balanceCard}>
-                    <Text style={styles.balanceLabel}>SOLDE DISPONIBLE</Text>
-                    <Text accessibilityLabel="Solde disponible" style={styles.balanceValue}>
-                        {balance.balanceLiters} <Text style={styles.balanceUnit}>litres</Text>
-                    </Text>
-                    <Text style={styles.balanceCaption}>Disponible pour vos prochaines utilisations</Text>
-                    <Pressable
-                        accessibilityLabel="Actualiser le portefeuille"
-                        accessibilityRole="button"
-                        disabled={store.refreshing}
-                        onPress={() => commands.refresh()}
-                        style={styles.refreshButton}
-                    >
-                        {store.refreshing ? (
-                            <ActivityIndicator color="#075b53" />
-                        ) : (
-                            <Text style={styles.refreshText}>Actualiser</Text>
-                        )}
-                    </Pressable>
-                </View>
-
-                <View style={styles.historyHeader}>
-                    <Text style={styles.historyTitle}>Historique</Text>
-                    <Text style={styles.historyCount}>{store.operations.length} opérations</Text>
-                </View>
-
-                {store.error ? (
-                    <View style={styles.inlineError}>
-                        <Text accessibilityRole="alert" style={styles.inlineErrorText}>
-                            Actualisation impossible. Vos dernières données restent affichées.
+        if (store.viewState === 'error') {
+            return (
+                <SafeAreaView style={styles.safeArea}>
+                    <View style={styles.centered}>
+                        <Text style={styles.errorEyebrow}>CONNEXION INTERROMPUE</Text>
+                        <Text style={styles.errorTitle}>Votre portefeuille n’a pas pu être chargé.</Text>
+                        <Text accessibilityRole="alert" style={styles.errorBody}>
+                            Vérifiez votre connexion, puis réessayez.
                         </Text>
-                        {store.error.retryable ? (
+                        {store.error?.retryable ? (
                             <Pressable
-                                accessibilityLabel="Réessayer d’actualiser le portefeuille"
+                                accessibilityLabel="Réessayer de charger le portefeuille"
                                 accessibilityRole="button"
                                 onPress={() => commands.retry()}
+                                style={styles.primaryButton}
                             >
-                                <Text style={styles.inlineRetry}>Réessayer</Text>
+                                <Text style={styles.primaryButtonText}>Réessayer</Text>
                             </Pressable>
                         ) : null}
                     </View>
-                ) : null}
+                </SafeAreaView>
+            );
+        }
 
-                {store.operations.length === 0 ? (
-                    <View style={styles.emptyCard}>
-                        <Text style={styles.emptyMark}>0.000</Text>
-                        <Text style={styles.emptyTitle}>Aucune opération pour le moment</Text>
-                        <Text style={styles.emptyBody}>Vos futurs mouvements d’eau apparaîtront ici.</Text>
-                    </View>
-                ) : (
-                    <View style={styles.operationList}>
-                        {store.operations.map((operation) => (
-                            <OperationRow key={operation.id} operation={operation} />
-                        ))}
-                    </View>
-                )}
+        const balance = store.balance;
+        if (!balance) return <SafeAreaView style={styles.safeArea} />;
 
-                {store.hasMore ? (
+        return (
+            <SafeAreaView style={styles.safeArea}>
+                <View style={styles.header}>
+                    <View>
+                        <Text style={styles.brand}>KAYNANN</Text>
+                        <Text style={styles.heading}>Mon eau</Text>
+                    </View>
                     <Pressable
-                        accessibilityLabel="Charger plus d’opérations"
+                        accessibilityLabel="Se déconnecter"
                         accessibilityRole="button"
-                        disabled={store.loadingNextPage}
-                        onPress={() => commands.loadNextPage()}
-                        style={styles.moreButton}
+                        onPress={onLogout}
+                        style={styles.logoutButton}
                     >
-                        {store.loadingNextPage ? (
-                            <ActivityIndicator color="#087f73" />
-                        ) : (
-                            <Text style={styles.moreText}>Voir les opérations précédentes</Text>
-                        )}
+                        <Text style={styles.logoutText}>Sortir</Text>
                     </Pressable>
-                ) : null}
-            </ScrollView>
-        </SafeAreaView>
-    );
-});
+                </View>
+
+                <ScrollView
+                    accessibilityLabel="Contenu du portefeuille"
+                    contentContainerStyle={styles.content}
+                    refreshControl={
+                        <RefreshControl
+                            colors={['#087f73']}
+                            onRefresh={() => commands.refresh()}
+                            refreshing={store.refreshing}
+                            tintColor="#087f73"
+                        />
+                    }
+                    showsVerticalScrollIndicator={false}
+                >
+                    <View style={styles.balanceCard}>
+                        <Text style={styles.balanceLabel}>SOLDE DISPONIBLE</Text>
+                        <Text accessibilityLabel="Solde disponible" style={styles.balanceValue}>
+                            {balance.balanceLiters} <Text style={styles.balanceUnit}>litres</Text>
+                        </Text>
+                        <Text style={styles.balanceCaption}>Disponible pour vos prochaines utilisations</Text>
+                        <Pressable
+                            accessibilityLabel="Actualiser le portefeuille"
+                            accessibilityRole="button"
+                            disabled={store.refreshing}
+                            onPress={() => commands.refresh()}
+                            style={styles.refreshButton}
+                        >
+                            {store.refreshing ? (
+                                <ActivityIndicator color="#075b53" />
+                            ) : (
+                                <Text style={styles.refreshText}>Actualiser</Text>
+                            )}
+                        </Pressable>
+                    </View>
+
+                    {onOpenReferral ? (
+                        <Pressable
+                            accessibilityLabel="Ouvrir le parrainage"
+                            accessibilityRole="button"
+                            onPress={onOpenReferral}
+                            style={styles.referralCard}
+                        >
+                            <View>
+                                <Text style={styles.referralEyebrow}>PARRAINAGE</Text>
+                                <Text style={styles.referralTitle}>Inviter et partager</Text>
+                            </View>
+                            <Text style={styles.referralArrow}>›</Text>
+                        </Pressable>
+                    ) : null}
+
+                    <View style={styles.historyHeader}>
+                        <Text style={styles.historyTitle}>Historique</Text>
+                        <Text style={styles.historyCount}>{store.operations.length} opérations</Text>
+                    </View>
+
+                    {store.error ? (
+                        <View style={styles.inlineError}>
+                            <Text accessibilityRole="alert" style={styles.inlineErrorText}>
+                                Actualisation impossible. Vos dernières données restent affichées.
+                            </Text>
+                            {store.error.retryable ? (
+                                <Pressable
+                                    accessibilityLabel="Réessayer d’actualiser le portefeuille"
+                                    accessibilityRole="button"
+                                    onPress={() => commands.retry()}
+                                >
+                                    <Text style={styles.inlineRetry}>Réessayer</Text>
+                                </Pressable>
+                            ) : null}
+                        </View>
+                    ) : null}
+
+                    {store.operations.length === 0 ? (
+                        <View style={styles.emptyCard}>
+                            <Text style={styles.emptyMark}>0.000</Text>
+                            <Text style={styles.emptyTitle}>Aucune opération pour le moment</Text>
+                            <Text style={styles.emptyBody}>Vos futurs mouvements d’eau apparaîtront ici.</Text>
+                        </View>
+                    ) : (
+                        <View style={styles.operationList}>
+                            {store.operations.map((operation) => (
+                                <OperationRow key={operation.id} operation={operation} />
+                            ))}
+                        </View>
+                    )}
+
+                    {store.hasMore ? (
+                        <Pressable
+                            accessibilityLabel="Charger plus d’opérations"
+                            accessibilityRole="button"
+                            disabled={store.loadingNextPage}
+                            onPress={() => commands.loadNextPage()}
+                            style={styles.moreButton}
+                        >
+                            {store.loadingNextPage ? (
+                                <ActivityIndicator color="#087f73" />
+                            ) : (
+                                <Text style={styles.moreText}>Voir les opérations précédentes</Text>
+                            )}
+                        </Pressable>
+                    ) : null}
+                </ScrollView>
+            </SafeAreaView>
+        );
+    },
+);
 
 function OperationRow({ operation }: { operation: WalletOperation }): React.JSX.Element {
     const credit = operation.direction === 'CREDIT';
@@ -252,6 +270,18 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
     },
     refreshText: { color: '#075b53', fontSize: 14, fontWeight: '900' },
+    referralCard: {
+        alignItems: 'center',
+        backgroundColor: '#fff4df',
+        borderRadius: 20,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 14,
+        padding: 19,
+    },
+    referralEyebrow: { color: '#b75b23', fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
+    referralTitle: { color: '#53331c', fontSize: 17, fontWeight: '900', marginTop: 5 },
+    referralArrow: { color: '#b75b23', fontSize: 32, fontWeight: '500' },
     historyHeader: {
         alignItems: 'baseline',
         flexDirection: 'row',

@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ReferralModule } from './referral/referral.module';
 import { SmsModule } from './sms/sms.module';
 import { WalletModule } from './wallet/wallet.module';
 
@@ -20,6 +21,7 @@ import { WalletModule } from './wallet/wallet.module';
         SmsModule,
         AuthModule,
         HealthModule,
+        ReferralModule,
         WalletModule,
     ],
 })

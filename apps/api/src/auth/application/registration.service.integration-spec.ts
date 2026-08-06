@@ -78,10 +78,18 @@ describe('RegistrationService transaction', () => {
         currentMandatoryInTransaction: ReturnType<typeof vi.fn>;
         createAcceptancesInTransaction: ReturnType<typeof vi.fn>;
     };
-    let users: { upsertConfirmedInTransaction: ReturnType<typeof vi.fn> };
+    let users: {
+        findByPhoneInTransaction: ReturnType<typeof vi.fn>;
+        upsertConfirmedInTransaction: ReturnType<typeof vi.fn>;
+    };
     let sessions: {
         prepareInitialCredentials: ReturnType<typeof vi.fn>;
         createInitialInTransaction: ReturnType<typeof vi.fn>;
+    };
+    let referral: {
+        prevalidatePendingPromo: ReturnType<typeof vi.fn>;
+        completeOnboarding: ReturnType<typeof vi.fn>;
+        deliverAfterCommit: ReturnType<typeof vi.fn>;
     };
     let prisma: { $transaction: ReturnType<typeof vi.fn> };
 
@@ -122,6 +130,9 @@ describe('RegistrationService transaction', () => {
             ),
         };
         users = {
+            findByPhoneInTransaction: vi.fn(async (transaction: TransactionState) =>
+                transaction.users.length === 0 ? null : { id: transaction.users[0] },
+            ),
             upsertConfirmedInTransaction: vi.fn(async (transaction: TransactionState, input: { id: string }) => {
                 transaction.users.push(input.id);
                 return { id: input.id };
@@ -134,6 +145,15 @@ describe('RegistrationService transaction', () => {
                 transaction.sessions.push(input.sessionId);
                 return { id: input.sessionId };
             }),
+        };
+        referral = {
+            prevalidatePendingPromo: vi.fn(async () => null),
+            completeOnboarding: vi.fn(async () => ({
+                promoCode: '23456789ABCD',
+                relationshipCreated: false,
+                entitlementIds: [],
+            })),
+            deliverAfterCommit: vi.fn(async () => undefined),
         };
         prisma = {
             $transaction: vi.fn(
@@ -167,6 +187,7 @@ describe('RegistrationService transaction', () => {
             users as unknown as UsersRepository,
             sessions as unknown as SessionsService,
             crypto,
+            referral,
         );
     });
 
@@ -221,6 +242,11 @@ describe('RegistrationService transaction', () => {
             }),
         );
         expect(registrations.complete).toHaveBeenCalledOnce();
+        expect(referral.completeOnboarding).toHaveBeenCalledOnce();
+        expect(referral.deliverAfterCommit).toHaveBeenCalledWith([]);
+        expect(registrations.complete.mock.invocationCallOrder[0]).toBeLessThan(
+            referral.deliverAfterCommit.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+        );
     });
 
     it('rolls back the user when the exact legal set changes in the transaction', async () => {

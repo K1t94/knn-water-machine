@@ -1,0 +1,651 @@
+Создай технический план реализации referral-программы на основе текущего
+  `specs/005-referral-program/spec.md`.
+
+  Перед планированием изучи:
+
+  - AGENTS.md;
+  - .codex/docs/context-policy.md;
+  - .codex/docs/ai-style-memory.md;
+  - .specify/memory/constitution.md;
+  - docs/mvp-requirements.md;
+  - docs/design/mockups/06_referral_program_hd.png;
+  - текущий spec.md feature 005;
+  - package.json, pnpm-workspace.yaml и pnpm-lock.yaml;
+  - package.json приложений apps/api и apps/mobile;
+  - Prisma schema и все существующие миграции;
+  - текущую архитектуру NestJS API и React Native приложения;
+  - конфигурации TypeScript, ESLint, Prettier и Vitest;
+  - spec.md, plan.md, research.md, data-model.md, contracts, quickstart.md,
+    tasks.md и релевантный код завершённой задачи specs/002-phone-otp-auth;
+  - итоговую ESLint-конфигурацию specs/003-eslint-rules;
+  - spec.md, plan.md, research.md, data-model.md, contracts, quickstart.md,
+    tasks.md и код завершённой задачи specs/004-water-wallet-ledger;
+  - существующую обработку pending promo code и referral deep links;
+  - registration completion, legal acceptance и session issuance flow;
+  - внутренние wallet application-команды и фактические границы транзакций
+    wallet repository.
+
+  ## Цель планирования
+
+  Спроектировать надёжную реализацию простой реферальной программы:
+
+  - один стабильный уникальный промокод на зарегистрированного пользователя;
+  - referral deep link;
+  - применение кода при регистрации после OTP и legal;
+  - явное применение кода зарегистрированным пользователем;
+  - блокировка применения после будущей первой успешной покупки;
+  - неизменяемая связь inviter/invitee;
+  - однократный welcome-бонус новому пользователю;
+  - однократный referral-бонус пригласившему;
+  - referral summary и история приглашений;
+  - минимальная интеграция с React Native приложением.
+
+  Временные development/test значения:
+
+  - welcome-бонус: 10 000 мл;
+  - referral-бонус пригласившему: 5 000 мл.
+
+  Приглашённый не получает отдельного referral-бонуса сверх welcome-бонуса.
+
+  Значения должны задаваться backend-конфигурацией и не должны быть зашиты в
+  mobile. Существующим пользователям welcome-бонус задним числом не начисляется.
+
+  Не планируй платежи, покупку воды, QR, карту, автоматы, MQTT, dispensing,
+  source buckets, bonus-first списание, многоуровневые referrals или
+  административное изменение баланса.
+
+  ## Анализ существующей архитектуры
+
+  В research.md явно зафиксируй:
+
+  - как сейчас завершается регистрация после OTP и legal;
+  - где и в каком виде хранится pending promo context;
+  - в какой момент создаются пользователь и первая session;
+  - какие действия выполняются в PostgreSQL-транзакции;
+  - какие действия выполняются через Redis registration authorization;
+  - можно ли безопасно расширить существующую registration transaction;
+  - какие транзакционные возможности предоставляет текущий wallet repository;
+  - принимает ли wallet-команда внешний transaction context;
+  - может ли referral и wallet быть изменён в одной транзакции без нарушения
+    архитектурных границ;
+  - как повтор registration completion восстанавливает предыдущий результат;
+  - как session restoration, logout и session replacement связаны с mobile stores;
+  - как текущая навигация должна быть минимально расширена для referral screen и
+    apply-promo screen.
+
+  Не предполагай общую атомарность только потому, что referral и wallet используют
+  одну базу данных. Проверь фактический код и Prisma transaction boundaries.
+
+  ## Backend-архитектура
+
+  Спроектируй отдельный NestJS referral-модуль с границами:
+
+  - domain;
+  - application;
+  - infrastructure;
+  - presentation/http;
+  - composition/integration с registration и wallet.
+
+  Определи:
+
+  - domain types и ошибки;
+  - application commands и queries;
+  - repository ports;
+  - thin controllers;
+  - явные request DTO;
+  - явные public response models;
+  - использование AccessSessionGuard;
+  - интеграцию с registration completion без изменения существующих auth,
+    registration, legal и session API-контрактов;
+  - интеграцию с wallet только через существующую или аккуратно расширенную
+    внутреннюю application boundary;
+  - внутреннюю команду закрытия referral eligibility для будущего
+    purchase-домена;
+  - отсутствие публичного endpoint для eligibility lock или начисления бонусов;
+  - стабильные публичные error codes;
+  - маскирование invitee phone до последних двух цифр;
+  - отсутствие database IDs, business keys и recovery-состояний в публичных
+    ответах.
+
+  Prisma должен использоваться только в infrastructure-слое.
+
+  ## Модель данных
+
+  Предложи конкретные Prisma-модели и reviewed SQL migration для:
+
+  - promo code пользователя;
+  - канонического значения promo code;
+  - referral eligibility;
+  - inviter/invitee relationship;
+  - application channel: registration или post-registration;
+  - bonus entitlement;
+  - welcome entitlement;
+  - inviter bonus entitlement;
+  - зафиксированного размера бонуса в миллилитрах;
+  - wallet business event identity;
+  - состояния безопасной доставки начисления;
+  - retry/recovery metadata, если оно необходимо;
+  - timestamps;
+  - deterministic cursor pagination;
+  - индексов и ограничений.
+
+  Обоснуй:
+
+  - хранить ли promo code в User или отдельной таблице;
+  - хранить ли eligibility lock отдельно от referral relationship;
+  - как представить пользователя без inviter, но с закрытой eligibility;
+  - как гарантировать одного inviter на invitee;
+  - как запретить self-referral на уровне базы данных;
+  - как гарантировать одно welcome entitlement на пользователя;
+  - как гарантировать одно inviter entitlement на relationship;
+  - как сделать relationship неизменяемой;
+  - нужны ли SQL triggers для запрета UPDATE/DELETE;
+  - какие ограничения выражаются Prisma schema, а какие требуют ручного SQL;
+  - нужен ли отдельный public identifier для invitation history;
+  - как хранить application channel;
+  - какие значения должны быть enum, а какие расширяемыми строками;
+  - как отличать pending, confirmed и permanently failed bonus delivery, не
+    раскрывая технические состояния пользователю.
+
+  Не использовать автоматическую синхронизацию схемы. Все изменения выполняются
+  reviewed migration.
+
+  ## Promo Code Strategy
+
+  Выбери и обоснуй конкретную стратегию промокодов:
+
+  - канонический формат;
+  - длина;
+  - допустимый алфавит;
+  - case-insensitive comparison;
+  - trim и normalization;
+  - защита от визуально неоднозначных символов;
+  - источник случайности;
+  - достаточная collision resistance;
+  - database uniqueness;
+  - retry при collision;
+  - защита от предсказуемого перебора;
+  - максимальная длина входного значения;
+  - безопасная публичная ошибка для неизвестного кода.
+
+  Не включай phone number, user ID или другую приватную/предсказуемую информацию
+  в публичный promo code.
+
+  Определи канонический referral deep link и его поведение для:
+
+  - signed-out пользователя;
+  - незавершённой регистрации;
+  - signed-in пользователя без inviter;
+  - пользователя с уже применённым кодом;
+  - пользователя с закрытой eligibility.
+
+  Учитывай существующий `kaynann://register?promo=...` flow и не ломай его без
+  обоснования.
+
+  ## Существующие пользователи
+
+  Выбери безопасную стратегию выдачи промокодов существующим пользователям:
+
+  - migration backfill;
+  - отдельная идемпотентная backfill-команда;
+  - lazy provisioning;
+  - либо обоснованная комбинация.
+
+  Сравни варианты по:
+
+  - безопасности migration;
+  - collision handling;
+  - времени блокировки таблиц;
+  - возможности rollback;
+  - повторному запуску;
+  - соблюдению требования, что каждый пользователь получает стабильный код;
+  - отсутствию массового ретроактивного welcome-бонуса.
+
+  Не начисляй существующим пользователям welcome-бонус задним числом.
+
+  Если backfill требует production-операции, опиши точную процедуру, dry run,
+  наблюдаемость и способ безопасного повторного запуска.
+
+  ## Бонусная конфигурация
+
+  Определи:
+
+  - названия и формат backend configuration values;
+  - единицу измерения в целых миллилитрах;
+  - validation при startup;
+  - допустимый диапазон;
+  - development/test defaults 10 000 и 5 000 мл;
+  - production behavior при отсутствующей конфигурации;
+  - способ фиксации фактического размера в entitlement и wallet ledger;
+  - поведение после изменения конфигурации;
+  - отсутствие передачи bonus amount от mobile-клиента.
+
+  Нулевая, отрицательная, дробная или превышающая wallet range конфигурация должна
+  приводить к безопасному отказу запуска либо отключению обработки до исправления.
+  Выбери один вариант и обоснуй его.
+
+  ## Транзакции, идемпотентность и recovery
+
+  Подробно сравни минимум два варианта:
+
+  1. Одна PostgreSQL-транзакция для relationship, entitlement и wallet credit.
+  2. Durable bonus entitlement с идемпотентной доставкой в wallet и recovery
+     worker/process.
+
+  Для каждого варианта оцени:
+
+  - совместимость с текущими Prisma и wallet boundaries;
+  - влияние на модульные границы;
+  - поведение registration completion;
+  - retries после caller timeout;
+  - concurrent apply;
+  - temporary wallet failure;
+  - application restart;
+  - невозможность потерять обязательное начисление;
+  - риск двойного начисления;
+  - операционную сложность;
+  - необходимость новой очереди или зависимости.
+
+  Выбери один основной подход.
+
+  Предпочитай простое решение на существующем PostgreSQL и текущих NestJS
+  возможностях. Не добавляй Redis queue или новую тяжёлую dependency без
+  подтверждённой необходимости.
+
+  Основная стратегия должна гарантировать:
+
+  - one welcome entitlement per new user;
+  - one relationship per invitee;
+  - one inviter entitlement per relationship;
+  - stable wallet business key;
+  - idempotent registration completion;
+  - idempotent repeated apply;
+  - deterministic conflicting retry;
+  - safe concurrent application одного и разных promo codes;
+  - отсутствие lost bonus;
+  - отсутствие duplicate wallet credit;
+  - восстановление после сбоя между referral state и wallet credit;
+  - отсутствие ложного ответа об успешном завершении referral effects;
+  - полное сохранение уже завершённой OTP/legal/session логики.
+
+  Определи recovery policy:
+
+  - кто запускает повтор;
+  - как выбираются незавершённые entitlements;
+  - lease/claim strategy;
+  - retry classification;
+  - bounded backoff;
+  - максимальное количество попыток либо стратегия постоянного восстановления;
+  - поведение при permanent conflict;
+  - метрики и структурированные логи;
+  - безопасный ручной операционный retry без ручного изменения баланса;
+  - shutdown и concurrent worker safety.
+
+  Не создавай distributed transaction и не заявляй exactly-once delivery.
+  Гарантируй exactly-once wallet effect через durable uniqueness и идемпотентный
+  wallet command.
+
+  ## Registration Integration
+
+  Опиши точную последовательность для:
+
+  - регистрации без promo code;
+  - регистрации с действительным promo code;
+  - регистрации с неизвестным promo code;
+  - self-referral;
+  - повторного completion с тем же idempotency key;
+  - конкурентных completion requests;
+  - сбоя после создания user/legal/session, но до wallet credit;
+  - повторного запуска после process crash.
+
+  Зафиксируй, где должны быть созданы:
+
+  - promo code нового пользователя;
+  - referral eligibility;
+  - welcome entitlement;
+  - relationship;
+  - inviter entitlement.
+
+  Не меняй публичный response регистрации и не добавляй bonus amount в session
+  credentials.
+
+  Если полная синхронная обработка бонуса сделает registration ненадёжной,
+  обоснуй наблюдаемую eventual-consistency модель. Она всё равно должна
+  гарантировать отсутствие потерянных начислений и выполнение принятого в spec
+  предела видимости результата.
+
+  ## Post-Registration Apply
+
+  Опиши command flow для зарегистрированного пользователя:
+
+  - canonicalization и validation;
+  - session-derived invitee identity;
+  - проверка self-referral;
+  - проверка существующей relationship;
+  - проверка eligibility lock;
+  - конкурентное применение одного кода;
+  - конкурентное применение разных кодов;
+  - idempotent retry;
+  - conflicting retry;
+  - создание relationship и inviter entitlement;
+  - доставка бонуса через wallet;
+  - response до и после recovery.
+
+  Определи механизм idempotency публичной apply-команды и необходимость
+  `Idempotency-Key`.
+
+  ## Future Purchase Eligibility Contract
+
+  Спроектируй внутренний application contract, который будущая purchase-feature
+  сможет вызвать при первой успешно завершённой покупке.
+
+  Контракт должен:
+
+  - принимать стабильную identity успешной покупки;
+  - определять пользователя через trusted caller input;
+  - закрывать eligibility ровно один раз;
+  - быть идемпотентным;
+  - не закрывать eligibility для failed, cancelled или incomplete purchase;
+  - корректно конкурировать с apply promo;
+  - иметь детерминированный результат, если apply и successful purchase происходят
+    одновременно;
+  - не быть публичным HTTP endpoint;
+  - не реализовывать purchase-модель в feature 005.
+
+  Явно выбери правило конкурентного порядка apply и lock. Предпочтительно
+  результат должен определяться порядком успешной фиксации в базе, без
+  эвристических временных окон.
+
+  ## Public API
+
+  Предложи минимальные контракты для:
+
+  - получения promo code и referral link;
+  - получения referral summary;
+  - применения promo code;
+  - получения invitation history.
+
+  Зафиксируй:
+
+  - routes и HTTP methods;
+  - request/query DTO;
+  - response DTO;
+  - authentication behavior;
+  - `Idempotency-Key`, если выбран;
+  - default page size 20;
+  - maximum page size 100;
+  - opaque cursor pagination;
+  - deterministic newest-first ordering;
+  - public error codes;
+  - response shaping;
+  - cache-control behavior для пользовательских данных;
+  - privacy-safe invitee label;
+  - отсутствие чужих user IDs, полных телефонов, wallet business keys,
+    entitlement/recovery fields и database columns.
+
+  Оцени, следует ли объединить promo information и summary в один read endpoint,
+  чтобы не создавать лишние запросы. Выбери минимальный и расширяемый контракт.
+
+  Не добавляй публичные endpoints для:
+
+  - ручного начисления bonus;
+  - изменения bonus configuration;
+  - eligibility lock;
+  - смены inviter;
+  - удаления relationship;
+  - произвольного wallet credit;
+  - backfill или recovery worker.
+
+  Создай source OpenAPI contract для feature и запланируй проверку generated
+  OpenAPI snapshot. Убедись, что публичные wallet write endpoints по-прежнему
+  отсутствуют.
+
+  ## Mobile
+
+  Спроектируй минимальную интеграцию в соответствии с существующими MobX и RxJS
+  паттернами:
+
+  - typed ReferralApi;
+  - cold Observable network operations;
+  - public response models;
+  - ReferralStore как единственный владелец referral screen state;
+  - disposable ReferralFlowService;
+  - composition root;
+  - session-scoped request identity;
+  - cancellation при logout/session replacement;
+  - stale-request protection;
+  - initial load;
+  - retry;
+  - refresh;
+  - history pagination;
+  - apply-code flow;
+  - input validation без дублирования backend business rules;
+  - incoming deep links для signed-out и signed-in пользователей;
+  - copy promo code;
+  - system share referral link;
+  - loading, empty, loaded, apply success, validation error, closed eligibility,
+    pagination loading и retryable error states.
+
+  Проверь, какие возможности копирования и sharing уже доступны в текущем Expo /
+  React Native стеке.
+
+  Для каждой потенциальной зависимости, включая `expo-clipboard`, укажи:
+
+  - выбрана или отклонена;
+  - зачем она нужна;
+  - совместимость с Expo SDK 54 и React Native 0.81;
+  - может ли задача быть выполнена существующими platform APIs;
+  - размер и операционная стоимость;
+  - почему dependency оправдана.
+
+  Не устанавливай dependency на этапе planning.
+
+  Минимально расширь текущую навигацию:
+
+  - переход из authenticated wallet experience в referral view;
+  - переход на apply-code view;
+  - signed-in referral deep link;
+  - back navigation;
+  - сохранение существующего logout и session restoration behavior.
+
+  Не проектируй полный home screen и нижнюю навигацию из мокапа.
+
+  Используй `docs/design/mockups/06_referral_program_hd.png` только как визуальное
+  направление. Явно зафиксируй, что нельзя переносить из мокапа:
+
+  - бонус 20 литров;
+  - полные имена приглашённых;
+  - начисление только после покупки;
+  - иллюстративный код;
+  - нижнюю навигацию как обязательный scope;
+  - другие демонстрационные данные.
+
+  ## Тестирование
+
+  Запланируй unit, integration, HTTP contract, mobile и real PostgreSQL tests для:
+
+  - canonical promo code;
+  - генерации и collision retry;
+  - уникальности promo code;
+  - provisioning существующих пользователей;
+  - отсутствия retroactive welcome bonus;
+  - invalid и unknown code;
+  - self-referral;
+  - pending promo before OTP/legal;
+  - registration без promo;
+  - registration с promo;
+  - welcome bonus 10 000 мл;
+  - отсутствие дополнительного invitee referral bonus;
+  - inviter bonus 5 000 мл;
+  - configuration validation;
+  - изменение config только для новых entitlements;
+  - repeated registration completion;
+  - repeated apply same code;
+  - conflicting retry with different code;
+  - concurrent apply same code;
+  - concurrent apply competing codes;
+  - concurrent invitees одного inviter;
+  - eligibility lock;
+  - race между apply и eligibility lock;
+  - transaction rollback;
+  - process interruption between entitlement and wallet credit;
+  - recovery retry;
+  - concurrent recovery workers;
+  - stable wallet business key;
+  - exactly-once wallet effect;
+  - immutable relationship;
+  - cross-user isolation;
+  - phone masking;
+  - deterministic cursor pagination;
+  - traversal минимум 250 invitations;
+  - safe public errors;
+  - absence of public bonus/write/recovery endpoints;
+  - mobile loading, empty, loaded, success, error, refresh и pagination;
+  - signed-out и signed-in deep links;
+  - logout/session replacement;
+  - stale-request protection;
+  - copy и share actions;
+  - regression задач 002, 003 и 004.
+
+  PostgreSQL concurrency, unique/check constraints, triggers, transaction rollback,
+  claim/lease behavior и recovery нельзя заменять mock- или SQLite-тестами.
+
+  Укажи отдельную opt-in команду для real PostgreSQL suite и необходимые
+  environment prerequisites.
+
+  ## План миграции
+
+  Опиши:
+
+  - Prisma schema changes;
+  - reviewed SQL migration;
+  - CHECK и UNIQUE constraints;
+  - indexes;
+  - immutable relationship protection;
+  - порядок deploy;
+  - совместимость с пустой базой;
+  - upgrade базы после feature 002;
+  - upgrade базы после feature 004;
+  - существующих пользователей без promo codes;
+  - backfill или lazy provisioning;
+  - rollback limitations;
+  - migration validation;
+  - запрет автоматической schema synchronization.
+
+  Миграция не должна:
+
+  - создавать wallet bonus operations;
+  - начислять welcome bonus существующим пользователям;
+  - создавать referral relationships;
+  - блокировать eligibility без purchase event;
+  - использовать небезопасные значения bonus configuration.
+
+  ## Создаваемые артефакты plan
+
+  Создай и согласуй:
+
+  - `specs/005-referral-program/plan.md`;
+  - `specs/005-referral-program/research.md`;
+  - `specs/005-referral-program/data-model.md`;
+  - `specs/005-referral-program/contracts/openapi.yaml`;
+  - отдельный contract для внутренних referral/wallet и eligibility команд, если
+    это помогает зафиксировать границы;
+  - `specs/005-referral-program/quickstart.md`.
+
+  В plan.md явно перечисли:
+
+  - итоговую структуру директорий;
+  - создаваемые и изменяемые файлы;
+  - выбранную Prisma-модель;
+  - migration и existing-user provisioning strategy;
+  - promo-code strategy;
+  - bonus configuration;
+  - transactional и recovery strategy;
+  - registration integration;
+  - wallet integration;
+  - eligibility lock contract;
+  - public API;
+  - mobile architecture;
+  - navigation changes;
+  - выбранные и отклонённые зависимости;
+  - порядок backend и mobile реализации;
+  - порядок добавления тестов;
+  - команды validation;
+  - критерии завершения каждой phase;
+  - риски, допущения и отложенные решения.
+
+  ## Фазы внедрения
+
+  Раздели план на небольшие проверяемые фазы, пригодные для последующего
+  `$speckit-tasks` и поэтапного `$speckit-implement`.
+
+  Предпочтительная последовательность:
+
+  1. Domain contracts, bonus configuration и promo-code rules.
+  2. Prisma migration и existing-user promo provisioning.
+  3. Referral repository, concurrency и immutable relationships.
+  4. Bonus entitlements, wallet delivery и recovery.
+  5. Registration completion integration.
+  6. Authenticated referral read/apply API.
+  7. Mobile API, MobX store, RxJS flow и deep links.
+  8. Minimal referral UI и navigation.
+  9. Regression, PostgreSQL acceptance и full validation.
+
+  Если исследование покажет другой безопасный dependency order, измени фазы и
+  обоснуй это.
+
+  Для каждой фазы укажи:
+
+  - цель;
+  - конкретные файлы;
+  - зависимости;
+  - минимальную проверку;
+  - observable completion criteria;
+  - риски, которые закрывает фаза.
+
+  ## Команды проверки
+
+  Определи фактически существующие либо обоснованно добавляемые команды для:
+
+  - Prisma format и validate;
+  - reviewed migration validation;
+  - Prisma client generation;
+  - API lint;
+  - mobile lint;
+  - workspace lint;
+  - format check;
+  - API typecheck;
+  - mobile typecheck;
+  - unit tests;
+  - targeted integration tests;
+  - real PostgreSQL referral tests;
+  - auth regression;
+  - wallet regression;
+  - OpenAPI source/generated consistency;
+  - API build;
+  - mobile JS build;
+  - full acceptance validation.
+
+  Не придумывай команды, которых нет в package.json, без отдельной задачи на их
+  добавление.
+
+  ## Ограничения
+
+  - Не устанавливай зависимости и не изменяй production-код на этапе planning.
+  - Не изменяй OTP, legal, SMS, registration request/response и session contracts.
+  - Не начисляй welcome-бонус существующим пользователям задним числом.
+  - Не добавляй invitee referral-бонус сверх welcome-бонуса.
+  - Не реализовывай purchase, payment, QR, map, machine, MQTT или dispensing.
+  - Не реализовывай source buckets или bonus-first spending.
+  - Не добавляй bonus expiry.
+  - Не добавляй денежную конвертацию или вывод.
+  - Не добавляй admin endpoints.
+  - Не переносись на новый ORM, database или queue без доказанной необходимости.
+  - Не добавляй тяжёлые зависимости.
+  - Не используй floating-point для воды.
+  - Не выполняй автоматическую синхронизацию Prisma schema.
+  - Не принимай значения mockup как продуктовые требования.
+  - Используй текущий package manager и существующие инструменты проекта.
+  - Если spec противоречит текущей архитектуре, Prisma-возможностям или
+    существующим auth/wallet транзакциям, явно зафиксируй конфликт, выбранное
+    решение и последствия.

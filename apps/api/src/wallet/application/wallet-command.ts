@@ -15,7 +15,9 @@ interface WalletCommandBase {
     readonly occurredAt: Date;
 }
 
-export type CreditWalletCommand = WalletCommandBase;
+export interface CreditWalletCommand extends WalletCommandBase {
+    readonly ownerStatusPolicy?: 'ACTIVE_ONLY' | 'EXISTING_OWNER';
+}
 
 export type DebitWalletCommand = WalletCommandBase;
 
@@ -34,6 +36,7 @@ interface ValidatedWalletCommandBase {
     readonly source: WalletOperationSource;
     readonly occurredAt: Date;
     readonly direction: WalletDirection;
+    readonly ownerStatusPolicy: 'ACTIVE_ONLY' | 'EXISTING_OWNER';
 }
 
 export interface ValidatedCreditWalletCommand extends ValidatedWalletCommandBase {

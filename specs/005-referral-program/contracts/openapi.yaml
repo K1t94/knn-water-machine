@@ -1,0 +1,345 @@
+openapi: 3.1.0
+info:
+  title: Kaynann Referral API
+  version: 0.1.0
+  description: >-
+    Source contract for authenticated referral reads and explicit promo-code
+    application. It adds no public bonus, recovery, eligibility, or wallet
+    mutation endpoint.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+paths:
+  /v1/referrals/me:
+    get:
+      operationId: getMyReferral
+      summary: Get the current user's referral code and summary
+      responses:
+        "200":
+          description: Referral information owned by the authenticated user
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyReferralResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/referrals/applications:
+    post:
+      operationId: applyReferralPromoCode
+      summary: Explicitly attach a promo code to the current user
+      description: >-
+        The authenticated user identity is the command identity. Repeating the
+        same attached code is idempotent; a different code is a conflict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyReferralCodeRequest"
+      responses:
+        "200":
+          description: Newly or previously attached canonical code
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyReferralCodeResponse"
+        "400":
+          description: Malformed or unavailable code
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+              examples:
+                unavailable:
+                  value:
+                    error:
+                      code: REFERRAL_CODE_UNAVAILABLE
+                      message: Referral code is unavailable.
+                      retryable: false
+                      requestId: referral-code-request
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Domain conflict
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+              examples:
+                selfReferral:
+                  value:
+                    error:
+                      code: REFERRAL_SELF_NOT_ALLOWED
+                      message: You cannot use your own referral code.
+                      retryable: false
+                      requestId: referral-conflict-request
+                alreadyAttached:
+                  value:
+                    error:
+                      code: REFERRAL_ALREADY_ATTACHED
+                      message: A different referral code is already attached.
+                      retryable: false
+                      requestId: referral-conflict-request
+                eligibilityClosed:
+                  value:
+                    error:
+                      code: REFERRAL_ELIGIBILITY_CLOSED
+                      message: Referral code application is no longer available.
+                      retryable: false
+                      requestId: referral-conflict-request
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/referrals/invitations:
+    get:
+      operationId: getMyReferralInvitations
+      summary: Get credited invitation history for the current user
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+      responses:
+        "200":
+          description: Newest-first deterministic invitation page
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationPageResponse"
+        "400":
+          description: Invalid cursor or page size
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: access-session
+  headers:
+    NoStore:
+      description: Prevent storage of user-specific referral data
+      schema:
+        type: string
+        const: no-store
+  responses:
+    Unauthorized:
+      description: Missing, invalid, or expired access session
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PublicError"
+    ServiceUnavailable:
+      description: Referral processing is temporarily unavailable
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PublicError"
+          examples:
+            unavailable:
+              value:
+                error:
+                  code: REFERRAL_SERVICE_UNAVAILABLE
+                  message: Referral service is temporarily unavailable.
+                  retryable: true
+                  requestId: referral-service-request
+  schemas:
+    Millilitres:
+      type: string
+      pattern: "^(0|[1-9][0-9]*)$"
+      description: Exact whole millilitres represented as a decimal string
+      examples:
+        - "5000"
+    ReferralEligibility:
+      type: string
+      enum:
+        - OPEN
+        - ATTACHED
+        - CLOSED
+    MyReferralResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - promoCode
+        - referralLink
+        - eligibility
+        - attachedPromoCode
+        - currentInviterRewardMl
+        - creditedInviterBonusMl
+        - creditedInvitationCount
+      properties:
+        promoCode:
+          type: string
+          pattern: "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$"
+        referralLink:
+          type: string
+          pattern: "^kaynann://register\\?promo=[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$"
+        eligibility:
+          $ref: "#/components/schemas/ReferralEligibility"
+        attachedPromoCode:
+          oneOf:
+            - type: string
+              pattern: "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$"
+            - type: "null"
+        currentInviterRewardMl:
+          $ref: "#/components/schemas/Millilitres"
+        creditedInviterBonusMl:
+          $ref: "#/components/schemas/Millilitres"
+        creditedInvitationCount:
+          type: integer
+          minimum: 0
+    ApplyReferralCodeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - promoCode
+      properties:
+        promoCode:
+          type: string
+          minLength: 1
+          maxLength: 64
+    ApplyReferralCodeResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - promoCode
+        - appliedAt
+      properties:
+        status:
+          type: string
+          description: "`ATTACHED` is returned when the code is first attached; `ALREADY_ATTACHED` is returned for idempotent same-code replay with the same persisted `appliedAt`."
+          enum:
+            - ATTACHED
+            - ALREADY_ATTACHED
+        promoCode:
+          type: string
+          pattern: "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$"
+        appliedAt:
+          type: string
+          format: date-time
+    Invitation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - inviteeLabel
+        - appliedAt
+        - status
+        - creditedAmountMl
+      properties:
+        id:
+          type: string
+          format: uuid
+        inviteeLabel:
+          type: string
+          pattern: "^\\*\\*[0-9]{0,2}$"
+          description: Fixed mask plus at most the final two phone digits
+        appliedAt:
+          type: string
+          format: date-time
+          description: Stable time when the referral relationship was successfully committed
+        status:
+          type: string
+          const: CREDITED
+        creditedAmountMl:
+          $ref: "#/components/schemas/Millilitres"
+    InvitationPageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - nextCursor
+        - hasMore
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invitation"
+        nextCursor:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 512
+            - type: "null"
+        hasMore:
+          type: boolean
+    PublicError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/PublicErrorDetails"
+    PublicErrorDetails:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - retryable
+        - requestId
+      properties:
+        code:
+          type: string
+          enum:
+            - REFERRAL_CODE_UNAVAILABLE
+            - REFERRAL_SELF_NOT_ALLOWED
+            - REFERRAL_ALREADY_ATTACHED
+            - REFERRAL_ELIGIBILITY_CLOSED
+            - REFERRAL_CURSOR_INVALID
+            - REFERRAL_SERVICE_UNAVAILABLE
+        message:
+          type: string
+          minLength: 1
+          maxLength: 200
+        retryable:
+          type: boolean
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 128

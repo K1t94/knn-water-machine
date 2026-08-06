@@ -107,7 +107,7 @@ describe('session HTTP contract', () => {
     const sessionRepository = { findActive: vi.fn() };
 
     beforeEach(async () => {
-        vi.clearAllMocks();
+        vi.resetAllMocks();
         sessions.refresh.mockResolvedValue(credentials);
         sessions.logout.mockResolvedValue(undefined);
         registration.complete.mockResolvedValue(credentials);
@@ -148,7 +148,9 @@ describe('session HTTP contract', () => {
         await app.init();
     });
 
-    afterEach(() => app.close());
+    afterEach(async () => {
+        await app.close();
+    });
 
     it('returns rotated credentials without changing the absolute deadline', async () => {
         const response = await request(httpServer(app)).post('/v1/auth/sessions/refresh').send({

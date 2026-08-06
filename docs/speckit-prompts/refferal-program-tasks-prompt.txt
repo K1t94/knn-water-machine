@@ -1,0 +1,506 @@
+ Создай dependency-ordered список задач для реализации referral-программы на
+  основе:
+
+  - specs/005-referral-program/spec.md;
+  - specs/005-referral-program/plan.md;
+  - specs/005-referral-program/research.md;
+  - specs/005-referral-program/data-model.md;
+  - specs/005-referral-program/contracts/openapi.yaml;
+  - specs/005-referral-program/contracts/internal-referral-commands.md;
+  - specs/005-referral-program/quickstart.md.
+
+  Перед созданием tasks.md также изучи:
+
+  - AGENTS.md;
+  - .codex/docs/context-policy.md;
+  - .codex/docs/ai-style-memory.md;
+  - .specify/memory/constitution.md;
+  - docs/mvp-requirements.md;
+  - docs/design/mockups/06_referral_program_hd.png;
+  - актуальную структуру apps/api и apps/mobile;
+  - package.json, pnpm-workspace.yaml и pnpm-lock.yaml;
+  - package.json приложений apps/api и apps/mobile;
+  - Prisma schema и все существующие миграции;
+  - текущие конфигурации TypeScript, ESLint, Prettier и Vitest;
+  - registration completion, OTP, legal acceptance и session issuance flow;
+  - Redis registration authorization и pending promo context;
+  - существующую обработку referral deep links;
+  - внутренние wallet application-команды и PrismaWalletRepository;
+  - существующий OpenAPI generator и generated snapshot;
+  - релевантные артефакты и код завершённых задач:
+    - specs/002-phone-otp-auth;
+    - specs/003-eslint-rules;
+    - specs/004-water-wallet-ledger.
+
+  ## Цель
+
+  Создай `specs/005-referral-program/tasks.md` с небольшими, проверяемыми и
+  dependency-ordered задачами для реализации:
+
+  - одного стабильного уникального промокода на пользователя;
+  - referral deep link;
+  - pending promo при регистрации;
+  - immutable referral relationship;
+  - post-registration применения промокода;
+  - eligibility lock для будущей первой успешной покупки;
+  - welcome-бонуса 10 000 мл для нового пользователя;
+  - inviter-бонуса 5 000 мл;
+  - durable bonus entitlements;
+  - идемпотентной доставки бонусов через существующий wallet;
+  - PostgreSQL recovery worker;
+  - authenticated referral API;
+  - mobile MobX/RxJS integration;
+  - минимального referral UI;
+  - regression и acceptance validation.
+
+  Приглашённый получает только welcome-бонус. Не добавляй отдельный
+  referral-бонус приглашённому.
+
+  Существующие пользователи должны получить промокоды, но не должны получать
+  welcome-бонус задним числом.
+
+  ## Формат задач
+
+  Для каждой задачи:
+
+  - укажи уникальный ID в формате `T001`, `T002` и далее;
+  - укажи Phase;
+  - укажи связь с пользовательской историей `US1`–`US4`, когда применимо;
+  - используй `[P]` только для действительно параллельных задач;
+  - укажи точные создаваемые или изменяемые файлы;
+  - укажи зависимости от предыдущих задач;
+  - добавь минимальную команду проверки;
+  - сформулируй наблюдаемый критерий завершения;
+  - укажи, если задача требует настоящего PostgreSQL или Redis;
+  - не объединяй в одну задачу несвязанные schema, backend, mobile и validation
+    изменения;
+  - сохраняй один логический diff на задачу, насколько это практически возможно.
+
+  Не помечай `[P]` задачи, которые изменяют один файл, одну миграцию, Prisma schema,
+  composition root, registration transaction или общий OpenAPI snapshot.
+
+  ## Фазы
+
+  Раздели задачи в соответствии с plan.md.
+
+  ### Phase 1: Domain contracts, configuration и promo-code rules
+
+  Включи задачи для:
+
+  - domain types и стабильных referral errors;
+  - promo-code canonicalization;
+  - точного формата из 12 символов;
+  - алфавита без визуально неоднозначных символов;
+  - CSPRNG generation через `crypto.randomBytes`;
+  - rejection sampling;
+  - collision retry до восьми попыток;
+  - ограничения длины входного значения;
+  - одинаковой безопасной ошибки для invalid и unknown code;
+  - phone masking до последних двух цифр;
+  - exact bigint millilitre types;
+  - cursor domain type;
+  - repository/application ports;
+  - registration onboarding contract;
+  - eligibility-close contract;
+  - bonus-delivery contract;
+  - `REFERRAL_WELCOME_BONUS_ML`;
+  - `REFERRAL_INVITER_BONUS_ML`;
+  - development/test defaults `10000` и `5000`;
+  - обязательной staging/production конфигурации;
+  - startup validation;
+  - отказа для нулевых, отрицательных, дробных и превышающих wallet range
+    значений;
+  - unit-тестов domain и configuration.
+
+  ### Phase 2: Prisma migration и existing-user provisioning
+
+  Включи задачи для:
+
+  - Prisma enums и моделей:
+    - ReferralPromoCode;
+    - ReferralEligibility;
+    - ReferralRelationship;
+    - ReferralBonusEntitlement;
+  - reviewed SQL migration;
+  - CHECK constraints;
+  - UNIQUE constraints;
+  - partial unique index для одного welcome entitlement на пользователя;
+  - уникальности inviter entitlement на relationship;
+  - self-referral CHECK;
+  - индекса `(inviterUserId, sequence DESC)`;
+  - monotonic bigint sequence;
+  - immutable promo-code trigger;
+  - immutable relationship trigger;
+  - entitlement immutable-facts trigger;
+  - eligibility state-transition protection;
+  - delivery/lease consistency constraints;
+  - foreign keys с безопасным `RESTRICT`;
+  - Prisma format, validate и client generation;
+  - миграции на пустой базе;
+  - upgrade после feature 002;
+  - upgrade после feature 004;
+  - проверки rollback;
+  - запрета UPDATE и DELETE;
+  - отдельной idempotent provisioning-команды;
+  - режима `--dry-run`;
+  - bounded UUID-keyset batches;
+  - collision retry;
+  - structured provisioning counters;
+  - lazy provisioning safety path;
+  - подтверждения отсутствия retroactive welcome entitlement;
+  - подтверждения отсутствия wallet операций при provisioning;
+  - добавления scripts в `apps/api/package.json`.
+
+  Не добавляй генерацию случайных кодов или bonus operations непосредственно в SQL
+  migration.
+
+  ### Phase 3: Referral repository, concurrency и immutable relationships
+
+  Включи задачи для:
+
+  - PrismaReferralRepository;
+  - Prisma только в infrastructure-слое;
+  - transactional promo provisioning;
+  - code lookup и canonical comparison;
+  - eligibility row locking через PostgreSQL;
+  - apply одного кода;
+  - idempotent retry того же кода;
+  - stable conflict для другого кода;
+  - self-referral;
+  - unknown code;
+  - closed eligibility;
+  - одной relationship на invitee;
+  - одного inviter entitlement на relationship;
+  - registration и post-registration channel;
+  - future eligibility-close command;
+  - стабильного purchase business event key;
+  - идемпотентного повторного eligibility close;
+  - race между apply и eligibility close;
+  - commit-order semantics;
+  - deterministic cursor encode/decode;
+  - summary queries;
+  - invitation history;
+  - cross-user isolation;
+  - traversal минимум 250 invitations;
+  - real PostgreSQL tests;
+  - минимум 100 concurrent same-code attempts;
+  - минимум 100 concurrent competing-code attempts;
+  - concurrent invitees одного inviter;
+  - immutable relationship tests.
+
+  Не заменяй row-lock, constraints, trigger и concurrency тесты mocks или SQLite.
+
+  ### Phase 4: Bonus entitlements, wallet delivery и recovery
+
+  Включи задачи для:
+
+  - создания welcome entitlement;
+  - создания inviter entitlement;
+  - отсутствия invitee referral entitlement;
+  - фиксации bonus amount при создании;
+  - стабильного wallet business key:
+    `referral_bonus:<entitlement-uuid>`;
+  - wallet operation kinds:
+    - `REFERRAL_WELCOME_BONUS`;
+    - `REFERRAL_INVITER_BONUS`;
+  - wallet source `REFERRAL_PROGRAM`;
+  - повторного использования сохранённого `occurredAt`;
+  - интеграции только через `WalletCommandService.credit`;
+  - отсутствия прямого изменения wallet Prisma-моделей;
+  - bounded inline delivery после commit;
+  - PostgreSQL claim через `FOR UPDATE SKIP LOCKED`;
+  - lease owner и lease expiry;
+  - batch size 25;
+  - lease 30 секунд;
+  - recovery schedule 1 секунда;
+  - bounded exponential backoff с jitter;
+  - transient failure retry;
+  - permanent wallet conflict classification;
+  - conditional completion по lease owner;
+  - expired lease reclaim;
+  - защита от overlapping worker внутри процесса;
+  - безопасность нескольких API instances;
+  - process interruption после wallet credit;
+  - exactly-one wallet effect через wallet idempotency;
+  - transaction rollback;
+  - reconciliation entitlement с wallet ledger;
+  - structured logs и metrics;
+  - безопасной `referral:recover` CLI-команды;
+  - добавления scripts в `apps/api/package.json`;
+  - unit и real PostgreSQL recovery tests.
+
+  Не добавляй Redis queue, новый broker или тяжёлую dependency.
+
+  ### Phase 5: Registration completion integration
+
+  Включи задачи для:
+
+  - pre-validation pending promo до `beginCompletion`;
+  - возможности изменить или удалить pending promo после validation failure;
+  - повторной authoritative validation внутри Prisma transaction;
+  - transaction-aware referral onboarding adapter;
+  - provisioning promo и eligibility при регистрации;
+  - welcome entitlement только для genuinely new user;
+  - welcome entitlement без promo code;
+  - relationship и inviter entitlement с действительным promo;
+  - отсутствия начислений до OTP и legal completion;
+  - запрета self-referral;
+  - неизвестного promo;
+  - сохранения существующей serializable registration transaction;
+  - сохранения registration request/response;
+  - сохранения session credentials;
+  - сохранения OTP и legal contracts;
+  - post-commit inline delivery;
+  - восстановления после process crash;
+  - repeated registration completion;
+  - concurrent completion;
+  - отсутствия дублирующих relationships, entitlements и wallet credits;
+  - существующего пользователя без retroactive welcome;
+  - real PostgreSQL и Redis integration tests;
+  - auth/session/legal regression tests.
+
+  Не меняй публичное поведение задачи 002, кроме завершения уже предусмотренного
+  pending promo flow.
+
+  ### Phase 6: Authenticated referral API и OpenAPI
+
+  Включи задачи для:
+
+  - `GET /v1/referrals/me`;
+  - `POST /v1/referrals/applications`;
+  - `GET /v1/referrals/invitations`;
+  - `AccessSessionGuard`;
+  - session-derived user identity;
+  - thin controller;
+  - request DTO;
+  - response DTO;
+  - stable public errors;
+  - `Cache-Control: no-store`;
+  - exact millilitre strings;
+  - default page size 20;
+  - maximum page size 100;
+  - opaque cursor;
+  - newest-first deterministic ordering;
+  - fixed privacy-safe mask `**NN`;
+  - public application statuses;
+  - same-code idempotent replay;
+  - absence of caller-selected user ID;
+  - absence of database IDs других пользователей;
+  - absence of full phones;
+  - absence of entitlement/recovery fields;
+  - absence of wallet business keys;
+  - HTTP contract tests;
+  - cross-user isolation tests;
+  - safe error tests;
+  - обновления source OpenAPI contract при необходимости;
+  - ретаргетинга aggregate generated snapshot с feature 004 на feature 005;
+  - сохранения auth и wallet endpoints в generated OpenAPI;
+  - проверки отсутствия публичных endpoints для:
+    - bonus delivery;
+    - recovery;
+    - provisioning;
+    - eligibility close;
+    - inviter replacement;
+    - relationship deletion;
+    - wallet credit;
+  - OpenAPI generation и consistency check.
+
+  Не добавляй `Idempotency-Key`, если задачи следуют выбранной в plan.md естественной
+  идемпотентности relationship. Если обнаружится конфликт, вынеси его отдельным
+  blocker, а не меняй решение скрыто.
+
+  ### Phase 7: Mobile API, MobX store, RxJS flow и deep links
+
+  Включи задачи для:
+
+  - установки Expo SDK 54-compatible `expo-clipboard` через Expo-aware command;
+  - обоснованного изменения lockfile;
+  - typed ReferralApi;
+  - cold Observable requests;
+  - AbortController teardown;
+  - strict response shaping;
+  - ReferralStore как единственного владельца referral screen state;
+  - ReferralFlowService;
+  - ReferralCompositionRoot;
+  - native actions adapter;
+  - copy через `expo-clipboard`;
+  - share через React Native `Share`;
+  - initial load;
+  - refresh;
+  - retry;
+  - history pagination;
+  - serialized load-more;
+  - explicit apply-code flow;
+  - session generation/epoch;
+  - cancellation при logout;
+  - cancellation при session replacement;
+  - stale-request protection;
+  - очистки private referral state;
+  - reload после login;
+  - reload после session restoration;
+  - одного app-scoped deep-link coordinator;
+  - initial URL;
+  - последующих Linking events;
+  - signed-out pending registration promo;
+  - signed-in prefilled apply screen;
+  - explicit confirmation;
+  - защиты от двойной обработки link при переходе auth -> main;
+  - unit-тестов API, store, flow и deep-link coordinator.
+
+  Не добавляй Expo Router, `expo-sharing`, bottom-tabs, AsyncStorage или другие
+  необоснованные зависимости.
+
+  ### Phase 8: Minimal referral UI и navigation
+
+  Включи задачи для:
+
+  - минимального authenticated MainNavigator;
+  - маршрутов Wallet, Referral и ApplyReferralCode;
+  - перехода из wallet experience;
+  - back navigation;
+  - ReferralScreen;
+  - ApplyReferralCodeScreen;
+  - loading state;
+  - empty history;
+  - loaded state;
+  - retryable error;
+  - refresh state;
+  - pagination loading;
+  - apply success;
+  - validation error;
+  - closed eligibility;
+  - read-only attached code;
+  - copy action;
+  - system share action;
+  - accessibility labels и roles;
+  - responsive React Native layout;
+  - сохранения logout;
+  - сохранения session restoration;
+  - navigation и screen tests;
+  - ручной визуальной проверки iOS/Android;
+  - mobile JS build.
+
+  Используй mockup только как визуальное направление. Не переноси:
+
+  - бонус 20 литров;
+  - полные имена;
+  - reward-after-purchase wording;
+  - sample promo code;
+  - демонстрационные данные;
+  - нижнюю навигацию.
+
+  ### Phase 9: Regression, PostgreSQL acceptance и full validation
+
+  Включи задачи для:
+
+  - полного referral unit suite;
+  - HTTP contract suite;
+  - real PostgreSQL suite;
+  - Redis registration suite;
+  - 100 repeated registration completions;
+  - 100 concurrent same-code apply;
+  - 100 concurrent competing-code apply;
+  - concurrent recovery workers;
+  - expired lease recovery;
+  - process interruption;
+  - transaction rollback;
+  - stable wallet event key;
+  - exactly-one wallet ledger effect;
+  - config change affecting only new entitlements;
+  - 250-item history traversal;
+  - privacy validation;
+  - forbidden endpoint validation;
+  - migration validation;
+  - provisioning dry run и safe rerun;
+  - no retroactive welcome verification;
+  - regression specs/002-phone-otp-auth;
+  - regression specs/003-eslint-rules;
+  - regression specs/004-water-wallet-ledger;
+  - API lint;
+  - mobile lint;
+  - workspace lint;
+  - format check;
+  - API typecheck;
+  - mobile typecheck;
+  - workspace typecheck;
+  - unit tests;
+  - API build;
+  - mobile JS build;
+  - OpenAPI source/generated consistency;
+  - документирования команд в quickstart;
+  - финального acceptance checklist.
+
+  Real PostgreSQL suite должна оставаться opt-in и использовать изолированные
+  disposable schemas. Default `pnpm test` не должен зависеть от локального
+  PostgreSQL или Redis.
+
+  ## Dependency order
+
+  Обеспечь следующий порядок:
+
+  1. Domain и configuration до Prisma repository.
+  2. Prisma schema и migration до persistence implementation.
+  3. Relationship concurrency до bonus delivery.
+  4. Durable entitlement и recovery до registration integration.
+  5. Registration integration до public API acceptance.
+  6. Public API до mobile API/store/flow.
+  7. Mobile data flow до UI.
+  8. Все implementation phases до full regression.
+
+  Если внутри Phase есть обязательный более строгий порядок, зафиксируй его через
+  явные зависимости задач.
+
+  ## Проверки и команды
+
+  Используй фактически существующие команды из package.json. Если команда пока не
+  существует, добавь отдельную предшествующую задачу на изменение package.json и
+  пометь команду как planned до выполнения этой задачи.
+
+  Обязательно предусмотрены:
+
+  - Prisma format;
+  - Prisma validate;
+  - Prisma client generation;
+  - reviewed migration validation;
+  - API lint;
+  - mobile lint;
+  - workspace lint;
+  - format check;
+  - API typecheck;
+  - mobile typecheck;
+  - unit tests;
+  - targeted referral tests;
+  - real PostgreSQL referral suite;
+  - PostgreSQL + Redis registration suite;
+  - auth regression;
+  - wallet regression;
+  - OpenAPI generate/check;
+  - API build;
+  - mobile JS build.
+
+  ## Ограничения
+
+  - На этапе генерации tasks.md не устанавливай зависимости.
+  - Не изменяй production-код.
+  - Не создавай Prisma migration.
+  - Не запускай migration.
+  - Не генерируй OpenAPI snapshot.
+  - Не реализовывай referral feature.
+  - Не изменяй OTP, legal, SMS, registration request/response или session
+    contracts.
+  - Не начисляй welcome-бонус существующим пользователям.
+  - Не добавляй invitee referral-бонус.
+  - Не реализовывай purchase, payment, QR, map, machines, MQTT или dispensing.
+  - Не реализовывай source buckets или bonus-first spending.
+  - Не добавляй bonus expiry.
+  - Не добавляй admin endpoints.
+  - Не добавляй ручное изменение wallet balance.
+  - Не добавляй Redis queue или новый broker.
+  - Не используй floating-point для воды.
+  - Не используй Prisma schema synchronization.
+  - Не скрывай потенциально меняющие поведение решения.
+
+  Если задача требует изменения архитектурного решения из plan.md, добавления
+  тяжёлой зависимости, изменения auth/session contracts или принятия нового
+  продуктового правила, вынеси это как явный blocker или deferred decision, а не
+  принимай решение внутри implementation task.

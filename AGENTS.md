@@ -237,5 +237,5 @@ Use real data received from the API or neutral placeholders.
 
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/004-water-wallet-ledger/plan.md
+at specs/005-referral-program/plan.md
 <!-- SPECKIT END -->

@@ -16,6 +16,12 @@ nodeModule._load = (request, parent, isMain) =>
     request === 'react-native' ? reactNativeMock : originalLoad(request, parent, isMain);
 
 const passthrough = ({ children }: { children?: React.ReactNode }): React.ReactNode => children;
+const createNavigationRef = () => ({
+    goBack: vi.fn(),
+    isReady: vi.fn(() => true),
+    navigate: vi.fn(),
+    reset: vi.fn(),
+});
 
 vi.mock('expo-secure-store', () => ({
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 1,
@@ -23,6 +29,10 @@ vi.mock('expo-secure-store', () => ({
     getItemAsync: vi.fn().mockResolvedValue(null),
     isAvailableAsync: vi.fn().mockResolvedValue(true),
     setItemAsync: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('expo-clipboard', () => ({
+    setStringAsync: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('react-native-safe-area-context', () => ({
@@ -33,6 +43,7 @@ vi.mock('react-native-safe-area-context', () => ({
 
 vi.mock('@react-navigation/native', () => ({
     NavigationContainer: passthrough,
+    createNavigationContainerRef: createNavigationRef,
     useNavigation: () => ({
         goBack: vi.fn(),
         navigate: vi.fn(),
@@ -43,7 +54,10 @@ vi.mock('@react-navigation/native', () => ({
 vi.mock('@react-navigation/native-stack', () => ({
     createNativeStackNavigator: () => ({
         Navigator: passthrough,
-        Screen: passthrough,
+        Screen: ({ children, name }: { children?: unknown; name: string }) =>
+            name === 'Wallet' && typeof children === 'function'
+                ? children({ navigation: createNavigationRef(), route: { key: 'wallet', name } })
+                : null,
     }),
 }));
 

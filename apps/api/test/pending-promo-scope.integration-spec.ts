@@ -72,6 +72,7 @@ describe('pending promo scope', () => {
             createAcceptancesInTransaction: vi.fn(async () => ({ count: 1 })),
         };
         const users = {
+            findByPhoneInTransaction: vi.fn(async () => null),
             upsertConfirmedInTransaction: vi.fn(async () => ({
                 id: '00000000-0000-4000-8000-000000000020',
             })),
@@ -93,6 +94,15 @@ describe('pending promo scope', () => {
             users as unknown as UsersRepository,
             sessions as unknown as SessionsService,
             crypto,
+            {
+                prevalidatePendingPromo: vi.fn(async () => '23456789ABCD'),
+                completeOnboarding: vi.fn(async () => ({
+                    promoCode: '23456789ABCD',
+                    relationshipCreated: true,
+                    entitlementIds: [],
+                })),
+                deliverAfterCommit: vi.fn(async () => undefined),
+            } as never,
         );
 
         await expect(
@@ -114,9 +124,10 @@ describe('pending promo scope', () => {
         expect(durableCalls).not.toMatch(/referral|bonus|award/i);
     });
 
-    it('has no referral or reward persistence in the feature schema', () => {
+    it('contains the referral persistence introduced by feature 005', () => {
         const schema = readFileSync(resolve(__dirname, '../prisma/schema.prisma'), 'utf8');
-        expect(schema).not.toMatch(/^model\s+(Referral|Promo|Reward|Bonus)\b/m);
+        expect(schema).toMatch(/^model\s+ReferralPromoCode\b/m);
+        expect(schema).toMatch(/^model\s+ReferralBonusEntitlement\b/m);
     });
 });
 

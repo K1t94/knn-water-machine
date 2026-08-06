@@ -163,6 +163,10 @@ describe('RegistrationService concurrency and repair', () => {
             ),
         };
         const users = {
+            findByPhoneInTransaction: vi.fn(async (transaction: DurableState, phoneE164: string) => {
+                const id = transaction.users.get(phoneE164);
+                return id === undefined ? null : { id };
+            }),
             upsertConfirmedInTransaction: vi.fn(
                 async (transaction: DurableState, input: { id: string; phoneE164: string }) => {
                     const existingId = transaction.users.get(input.phoneE164);
@@ -241,6 +245,15 @@ describe('RegistrationService concurrency and repair', () => {
             users as unknown as UsersRepository,
             sessions as unknown as SessionsService,
             crypto,
+            {
+                prevalidatePendingPromo: vi.fn(async () => null),
+                completeOnboarding: vi.fn(async () => ({
+                    promoCode: '23456789ABCD',
+                    relationshipCreated: false,
+                    entitlementIds: [],
+                })),
+                deliverAfterCommit: vi.fn(async () => undefined),
+            } as never,
         );
     });
 
