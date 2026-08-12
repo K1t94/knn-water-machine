@@ -2,6 +2,7 @@ import { Observable, Subject, of, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AuthApiError, type AuthApi, type CurrentLegalSet, type SessionCredentials } from '../../api/auth-api';
+import { FeatureAvailabilityStore } from '../../features/stores/feature-availability.store';
 import { RegistrationStore } from '../stores/registration.store';
 
 import { RegistrationFlowService } from './registration-flow.service';
@@ -127,6 +128,57 @@ describe('RegistrationFlowService', () => {
         expect(store.pendingPromoCode).toBeUndefined();
         expect(api.updateRegistrationContext).toHaveBeenNthCalledWith(1, 'registration-authorization', 'PROMO-1');
         expect(api.updateRegistrationContext).toHaveBeenNthCalledWith(2, 'registration-authorization', null);
+        flow.dispose();
+    });
+
+    it('clears local and authorized promo context when referral availability is disabled', () => {
+        const api = createApi();
+        const store = new RegistrationStore();
+        const availability = new FeatureAvailabilityStore();
+        availability.finishRefresh(availability.beginRefresh(), true);
+        const flow = new RegistrationFlowService(
+            store,
+            api,
+            new MemoryAuthorizationStorage(),
+            undefined,
+            availability,
+        );
+        flow.begin(verified);
+        flow.setPendingPromoCode('PROMO-1');
+
+        availability.disableFromReferralResponse();
+
+        expect(store.pendingPromoCode).toBeUndefined();
+        expect(api.updateRegistrationContext).toHaveBeenLastCalledWith('registration-authorization', null);
+        flow.setPendingPromoCode('IGNORED');
+        expect(store.pendingPromoCode).toBeUndefined();
+        flow.dispose();
+    });
+
+    it('preserves pending promo while authoritative availability is refreshing after OTP verification', () => {
+        const api = createApi();
+        const store = new RegistrationStore();
+        const availability = new FeatureAvailabilityStore();
+        availability.finishRefresh(availability.beginRefresh(), true);
+        store.setPendingPromoCode('PROMO-1');
+        const flow = new RegistrationFlowService(
+            store,
+            api,
+            new MemoryAuthorizationStorage(),
+            undefined,
+            availability,
+        );
+
+        const refreshToken = availability.beginRefresh();
+        flow.begin(verified);
+
+        expect(availability.state).toBe('loading');
+        expect(store.pendingPromoCode).toBe('PROMO-1');
+        expect(api.updateRegistrationContext).not.toHaveBeenCalled();
+
+        availability.failRefresh(refreshToken, { code: 'SERVICE_UNAVAILABLE', retryable: true });
+        expect(store.pendingPromoCode).toBe('PROMO-1');
+        expect(api.updateRegistrationContext).not.toHaveBeenCalled();
         flow.dispose();
     });
 

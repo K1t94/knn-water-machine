@@ -1,26 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { CredentialCryptoService } from '../../common/security/credential-crypto.service';
-import { ReferralError } from '../../referral/domain/referral-errors';
 
 import { DependencyUnavailableError } from './auth-application.error';
 import { RegistrationService } from './registration.service';
 
 const installationId = 'registration-referral-unit-installation';
 
-describe('RegistrationService referral pre-validation', () => {
-    it.each([
-        ['invalid', 'bad'],
-        ['unknown', '23456789ABCD'],
-        ['overlong', '2'.repeat(65)],
-    ])('does not consume registration authorization for %s promo input', async (_case, pendingPromoCode) => {
+describe('RegistrationService pending referral context', () => {
+    it('allows the pending promo to be replaced and removed before completion', async () => {
+        const pendingPromoCode = 'bad';
         const setup = createSetup(pendingPromoCode);
-        setup.referral.prevalidatePendingPromo.mockRejectedValue(
-            new ReferralError('REFERRAL_CODE_UNAVAILABLE', 'Referral code is unavailable'),
-        );
-
-        await expect(setup.service.complete(command())).rejects.toMatchObject({ code: 'REFERRAL_CODE_UNAVAILABLE' });
-        expect(setup.registrations.beginCompletion).not.toHaveBeenCalled();
 
         await setup.service.updatePendingPromo('registration-authorization', '23456789ABCD');
         await setup.service.updatePendingPromo('registration-authorization', null);
@@ -32,16 +22,13 @@ describe('RegistrationService referral pre-validation', () => {
         expect(setup.registrations.updatePromo).toHaveBeenNthCalledWith(2, 'registration-authorization', null);
     });
 
-    it('pre-validates a valid promo before beginning completion', async () => {
+    it('does not query referral state before beginning registration completion', async () => {
         const setup = createSetup('23456789ABCD');
-        setup.referral.prevalidatePendingPromo.mockResolvedValue('23456789ABCD');
         setup.registrations.beginCompletion.mockRejectedValue(new Error('stop after ordering assertion'));
 
         await expect(setup.service.complete(command())).rejects.toBeInstanceOf(DependencyUnavailableError);
-        expect(setup.referral.prevalidatePendingPromo).toHaveBeenCalledWith('23456789ABCD', undefined);
-        expect(setup.referral.prevalidatePendingPromo.mock.invocationCallOrder[0]).toBeLessThan(
-            setup.registrations.beginCompletion.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
-        );
+        expect(setup.registrations.beginCompletion).toHaveBeenCalledTimes(1);
+        expect(setup.referral.completeOnboarding).not.toHaveBeenCalled();
     });
 });
 
@@ -59,7 +46,6 @@ function createSetup(pendingPromoCode: string) {
         updatePromo: vi.fn(async () => undefined),
     };
     const referral = {
-        prevalidatePendingPromo: vi.fn(),
         completeOnboarding: vi.fn(),
         deliverAfterCommit: vi.fn(),
     };

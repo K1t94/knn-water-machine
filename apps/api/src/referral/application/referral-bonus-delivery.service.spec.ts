@@ -25,10 +25,10 @@ function entitlement(overrides: Partial<ReferralEntitlement> = {}): ReferralEnti
     return {
         id: ENTITLEMENT_ID,
         beneficiaryUserId: USER_ID,
-        kind: 'WELCOME',
-        amountMl: parseReferralMillilitres(10_000n),
+        kind: 'INVITER',
+        amountMl: parseReferralMillilitres(5_000n),
         walletBusinessEventKey: `referral_bonus:${ENTITLEMENT_ID}`,
-        walletOperationKind: REFERRAL_WELCOME_OPERATION_KIND,
+        walletOperationKind: REFERRAL_INVITER_OPERATION_KIND,
         walletSource: REFERRAL_WALLET_SOURCE,
         occurredAt: OCCURRED_AT,
         status: 'PROCESSING',
@@ -57,56 +57,65 @@ describe('ReferralBonusDeliveryService', () => {
         service = new ReferralBonusDeliveryService(repository, walletCommandService as WalletCommandService);
     });
 
-    it.each([
-        ['WELCOME', REFERRAL_WELCOME_OPERATION_KIND, 10_000n],
-        ['INVITER', REFERRAL_INVITER_OPERATION_KIND, 5_000n],
-    ] as const)(
-        'delivers a %s entitlement through wallet with stored immutable facts',
-        async (kind, operationKind, amountMl) => {
-            vi.mocked(repository.getEntitlement).mockResolvedValue(
-                entitlement({
-                    kind,
-                    amountMl: parseReferralMillilitres(amountMl),
-                    walletOperationKind: operationKind,
-                }),
-            );
-            vi.mocked(walletCommandService.credit).mockResolvedValue({
-                entryId: LEDGER_ENTRY_ID,
-                balanceAfterMl: parseWalletBalance(amountMl),
-                idempotentReplay: false,
-            });
-            vi.mocked(repository.completeDelivery).mockResolvedValue(true);
+    it('delivers an inviter entitlement through wallet with its stored immutable amount', async () => {
+        const amountMl = 5_000n;
+        vi.mocked(repository.getEntitlement).mockResolvedValue(
+            entitlement({
+                amountMl: parseReferralMillilitres(amountMl),
+            }),
+        );
+        vi.mocked(walletCommandService.credit).mockResolvedValue({
+            entryId: LEDGER_ENTRY_ID,
+            balanceAfterMl: parseWalletBalance(amountMl),
+            idempotentReplay: false,
+        });
+        vi.mocked(repository.completeDelivery).mockResolvedValue(true);
 
-            await expect(
-                service.deliver({ entitlementId: ENTITLEMENT_ID, expectedLeaseOwner: LEASE_OWNER }),
-            ).resolves.toEqual({
-                status: 'DELIVERED',
-                walletLedgerEntryId: LEDGER_ENTRY_ID,
-            });
+        await expect(
+            service.deliver({ entitlementId: ENTITLEMENT_ID, expectedLeaseOwner: LEASE_OWNER }),
+        ).resolves.toEqual({
+            status: 'DELIVERED',
+            walletLedgerEntryId: LEDGER_ENTRY_ID,
+        });
 
-            expect(walletCommandService.credit).toHaveBeenCalledWith({
-                userId: USER_ID,
-                businessEventKey: `referral_bonus:${ENTITLEMENT_ID}`,
-                amountMl,
-                operationKind,
-                source: REFERRAL_WALLET_SOURCE,
-                occurredAt: OCCURRED_AT,
-                ownerStatusPolicy: 'EXISTING_OWNER',
-            });
-            expect(repository.completeDelivery).toHaveBeenCalledWith(
-                ENTITLEMENT_ID,
-                LEASE_OWNER,
-                LEDGER_ENTRY_ID,
-                expect.any(Date),
-            );
-        },
-    );
+        expect(walletCommandService.credit).toHaveBeenCalledWith({
+            userId: USER_ID,
+            businessEventKey: `referral_bonus:${ENTITLEMENT_ID}`,
+            amountMl,
+            operationKind: REFERRAL_INVITER_OPERATION_KIND,
+            source: REFERRAL_WALLET_SOURCE,
+            occurredAt: OCCURRED_AT,
+            ownerStatusPolicy: 'EXISTING_OWNER',
+            featureGuard: 'REFERRAL_PROGRAM_ENABLED',
+        });
+        expect(repository.completeDelivery).toHaveBeenCalledWith(
+            ENTITLEMENT_ID,
+            LEASE_OWNER,
+            LEDGER_ENTRY_ID,
+            expect.any(Date),
+        );
+    });
+
+    it('keeps a legacy welcome entitlement inert', async () => {
+        vi.mocked(repository.getEntitlement).mockResolvedValue(
+            entitlement({ kind: 'WELCOME', walletOperationKind: REFERRAL_WELCOME_OPERATION_KIND }),
+        );
+
+        await expect(
+            service.deliver({ entitlementId: ENTITLEMENT_ID, expectedLeaseOwner: LEASE_OWNER }),
+        ).resolves.toEqual({
+            status: 'PERMANENT_FAILURE',
+            errorCode: 'REFERRAL_ENTITLEMENT_KIND_UNSUPPORTED',
+        });
+        expect(walletCommandService.credit).not.toHaveBeenCalled();
+        expect(repository.completeDelivery).not.toHaveBeenCalled();
+    });
 
     it('completes delivery after a wallet idempotent replay without creating a second effect', async () => {
         vi.mocked(repository.getEntitlement).mockResolvedValue(entitlement());
         vi.mocked(walletCommandService.credit).mockResolvedValue({
             entryId: LEDGER_ENTRY_ID,
-            balanceAfterMl: parseWalletBalance(10_000n),
+            balanceAfterMl: parseWalletBalance(5_000n),
             idempotentReplay: true,
         });
         vi.mocked(repository.completeDelivery).mockResolvedValue(true);

@@ -1,356 +1,68 @@
-# Implementation Plan: Referral Program
+# Implementation Plan: Referral Program Scope Revision
 
-**Branch**: `refferal-program-feature` | **Date**: 2026-08-06 | **Spec**: [spec.md](./spec.md)
+**Branch**: `005-referral-program` | **Date**: 2026-08-12 | **Spec**: `specs/005-referral-program/spec.md`
 
-**Input**: Feature specification from `specs/005-referral-program/spec.md`
+**Input**: Updated requirements in `specs/005-referral-program/spec.md`. This plan migrates the implemented code; it is not a greenfield design and does not restore superseded requirements.
 
 ## Summary
 
-Add a dedicated NestJS referral module and a minimal Expo referral experience.
-Every registered user receives one immutable random promo code and one explicit
-eligibility state. Registration and authenticated application create immutable
-relationships plus durable bonus entitlements; the existing wallet application
-command delivers captured exact millilitre amounts with a globally unique
-`referral_bonus:<entitlement-id>` key. PostgreSQL leases recover interrupted
-delivery without a new queue or a false distributed-transaction guarantee.
+Refactor the existing referral implementation so registration can create only one inviter relationship/bonus, remove welcome and post-registration application/eligibility behavior, and add a PostgreSQL-authoritative runtime flag. The flag is controlled by protected operational HTTP plus root package scripts, gates all server side effects and public referral reads, pauses recoverable inviter obligations, and drives a MobX/RxJS mobile availability owner that hides and clears all referral UI while disabled.
 
-Existing users receive promo/eligibility records through a dry-run-capable,
-idempotent backfill plus lazy repair, but never receive a retroactive welcome
-bonus. Public reads expose only own code/summary and masked successfully credited invitation
-history. Mobile follows the existing MobX/RxJS lifecycle, preserves
-`kaynann://register?promo=...`, adds explicit signed-in application, copy/share,
-and a small authenticated native stack without adopting the mockup's product
-values or bottom navigation.
+Historical promo codes, relationships, entitlements, and wallet entries remain immutable. Legacy enum values stay readable; transient eligibility storage is removed only after old instances are drained.
 
 ## Technical Context
 
-**Language/Version**: Node.js `>=24 <25`; TypeScript declared `^5.8.3`, resolved `5.9.3`
+**Language/Version**: TypeScript 5.8; Node.js 24; React Native/Expo versions already pinned in the workspace
 
-**Primary Dependencies**: NestJS `11.1.28`; Prisma/Prisma Client `6.19.3`;
-Nest Schedule `6.1.3`; Expo SDK `54.0.36`; React Native `0.81.5`; React
-`19.1.0`; MobX `6.16.1`; RxJS `7.8.2`; one planned SDK-aligned dependency,
-`expo-clipboard`
+**Primary Dependencies**: NestJS, Prisma, PostgreSQL, React Native, MobX, RxJS, Zod, Vitest; no new runtime dependency
 
-**Storage**: PostgreSQL 17 for referral facts, entitlements, leases, and wallet;
-Redis `5.12.1` remains authoritative only for pending registration context;
-no mobile persistence for server referral state
+**Storage**: Existing PostgreSQL/Prisma for users, referral facts, wallet ledger, and new singleton feature state; Redis remains part of auth/registration only
 
-**Testing**: Vitest `3.2.7`, Supertest, React Native Testing Library `14.0.1`,
-real PostgreSQL 17 concurrency/migration tests, and Redis-backed registration
-integration tests
+**Testing**: Vitest unit/contract/integration tests, PostgreSQL and Redis acceptance suites, Nest OpenAPI generation/check, React Native Testing Library
 
-**Target Platform**: Existing Linux NestJS API and Expo iOS/Android app
+**Target Platform**: Existing NestJS API deployment with multiple instances; existing iOS/Android Expo client
 
-**Project Type**: Existing pnpm `11.18.0` mobile + API monorepo under `apps/*`
+**Project Type**: pnpm monorepo with API and mobile applications
 
-**Performance Goals**: own-summary uses bounded indexed reads; invitation pages
-use `(inviterUserId, sequence DESC)` and remain deterministic through at least
-250 rows; promo lookup uses one unique index; registration adds bounded writes;
-normal inline delivery makes accepted bonuses visible within the specification's
-five-second objective while durable recovery handles outages
+**Performance Goals**: Preserve existing bounded pagination and recovery batches; flag visibility across instances within 5 seconds; no additional network service
 
-**Constraints**: exact integer millilitres; immutable code/relationship facts;
-one relationship per invitee; no retroactive welcome; no public wallet/referral
-write other than explicit code application; no queue/framework migration;
-existing OTP/legal/session request and response contracts remain unchanged
+**Constraints**: Runtime toggle without rebuild/restart/release; registration stays available; no credit after successful disable response; exactly-once wallet effect; no secrets in repository/public responses; mobile fail-closed on unknown state
 
-**Scale/Scope**: four referral persistence concepts, three authenticated HTTP
-routes, three trusted internal commands, one leased recovery worker, one
-provisioning CLI, two mobile screens, and a minimal authenticated navigator
+**Scale/Scope**: One runtime flag, two retained authenticated referral reads, one public app-config read, two operational methods, registration/recovery/wallet integration, and referral-related mobile navigation/state
+
+**Pre-implementation baseline (captured 2026-08-12)**: Welcome entitlement, post-registration POST, eligibility model/purchase-close command, and signed-in apply UI were implemented and had to be removed. No runtime availability mechanism existed. Current implementation progress is tracked in `tasks.md`.
+
+All technical questions are resolved in `research.md`.
 
 ## Constitution Check
 
-_GATE: passed before research and passed again after design._
+*GATE: Passed before research and re-checked after design.*
 
-| Principle | Design evidence | Result |
-| --- | --- | --- |
-| One logical diff | Nine dependency-ordered phases isolate domain, schema, persistence, delivery, auth integration, HTTP, mobile data, UI, and acceptance work. | PASS |
-| Boundary validation | DTOs bound promo/cursor/limit input; config and internal command values are validated before persistence. | PASS |
-| Explicit outputs | Dedicated mappers expose masked labels and exact strings while omitting user IDs, entitlement/recovery state, wallet keys, and Prisma records. | PASS |
-| Schema safety | A reviewed Prisma migration adds checks, partial indexes, and triggers; migration performs no data backfill or credit. | PASS |
-| Security-sensitive work | Existing `AccessSessionGuard` owns user identity; registration HTTP/session contracts are unchanged and auth regression is mandatory. | PASS |
-| Minimal validation | Every phase has focused tests before workspace-wide checks. | PASS |
-| Durable style memory | Style memory was read and is not modified. | PASS |
-| Context discipline | Research was limited to requested feature artifacts, manifests, auth/registration, wallet, navigation, configs, and the supplied mockup. | PASS |
-| Frontend reactive architecture | MobX exclusively owns referral screen state; disposable RxJS services own requests, cancellation, retry, session replacement, and deep-link orchestration. | PASS |
+| Principle | Design Evidence | Status |
+|---|---|---|
+| I. One Logical Diff at a Time | Work is phased as schema expand, backend semantics, operations, mobile gating, contract cleanup, then validation. | PASS |
+| II. Explicit Boundary Validation | Strict operational DTO, typed public config parser, canonical promo validation, and shaped public/internal responses. | PASS |
+| III. Explicit Outputs and Error Paths | `FEATURE_DISABLED`, storage-unavailable, unauthorized, script exit, registration skip, and recovery pause outcomes are specified. | PASS |
+| IV. Database and Migration Discipline | Additive default-enabled migration, non-cascading later eligibility drop, retained immutable facts/enums, no auto-sync. | PASS |
+| V. Security Review for Sensitive Changes | Dedicated timing-safe bearer guard, no query secrets, public/private contract separation, no credential logging. | PASS |
+| VI. Smallest Relevant Validation | Each phase lists unit/contract/integration checks; PostgreSQL tests cover locks and exactly-once behavior. | PASS |
+| VII. Durable Style Memory Only on Explicit Request | No style-memory update is planned. | PASS |
+| VIII. Context-Efficient Engineering | Only referral/auth/wallet boundaries, schema/migrations, env/packages, mobile composition, tests, artifacts, and mapped mockup were inspected. | PASS |
+| IX. Frontend State and Reactive Workflow Discipline | One MobX availability owner, RxJS cancellation/session replacement, explicit disposal, presentation-only observers. | PASS |
 
-No constitution violation requires a complexity exception.
+There are no constitution violations requiring a complexity exception.
 
-## Conflicts, Assumptions, And Deferred Product Decisions
+## Pre-implementation Actual-State Gaps (Captured 2026-08-12)
 
-1. The current wallet repository always starts its own transaction and accepts
-   no external Prisma client. Referral therefore cannot honestly promise one
-   transaction across relationship and wallet credit without weakening module
-   boundaries. A durable entitlement is committed with the relationship and is
-   delivered at least once; wallet uniqueness provides exactly one effect.
-2. Pending promo text currently lives in Redis registration authorization,
-   accepts broader printable input up to 64 characters, and disappears when
-   completion is finalized. Feature 005 canonicalizes it before completion
-   leaves editable state and revalidates it in the database transaction. Redis
-   remains context storage, never referral truth.
-3. Registration retries currently recover prepared credentials through the
-   existing completion identity. The referral onboarding adapter is idempotent
-   under database uniqueness; it does not alter credentials or public response.
-   Pre-existing finite Redis recovery TTL and legal recheck semantics are auth
-   risks outside this feature and must not be silently redesigned here.
-4. The MVP refers to first successful purchase, but no purchase model exists.
-   This feature exposes only a trusted, idempotent eligibility-close application
-   contract. Failed/cancelled/incomplete purchases are explicitly not modeled.
-5. The mockup shows 20 L, full names, a reward-after-purchase narrative, sample
-   code, and bottom tabs. These conflict with the approved spec or exceed scope.
-   Only hierarchy and visual direction are retained.
-6. The canonical referral link remains the configured custom scheme. Universal
-   links/install fallback are deferred until a public domain and platform
-   association files exist.
-7. Temporary bonus amounts remain policy configuration: development/test use
-   10,000 mL welcome and 5,000 mL inviter; staging/production require explicit
-   values. No expiry, source buckets, bonus-first ordering, or invitee bonus is
-   inferred.
-
-No unresolved clarification blocks technical task generation.
-
-## Architecture
-
-### Backend boundaries
-
-```text
-RegistrationService serializable transaction
-  -> ReferralRegistrationIntegration (transaction-aware composition adapter)
-       -> referral repository with Prisma.TransactionClient
-       -> durable promo/eligibility/relationship/entitlement facts
-
-ReferralController
-  -> ReferralApplicationService / ReferralQueryService
-       -> ReferralRepository port
-            <- PrismaReferralRepository -> PrismaService -> PostgreSQL
-
-Inline attempt or ReferralRecoveryScheduler
-  -> ReferralBonusDeliveryService
-       -> WalletCommandService exported application boundary
-       -> ReferralRepository delivery metadata
-
-Future trusted Purchase application
-  -> CloseReferralEligibility command
-       -> ReferralRepository; no public HTTP adapter
-```
-
-- `referral/domain` contains framework-free promo, entitlement, eligibility,
-  cursor, masking, and stable error types.
-- `referral/application` owns commands, queries, repository/clock/random ports,
-  delivery classification, provisioning, and recovery policy. It imports no
-  Prisma and never mutates wallet persistence.
-- `referral/infrastructure/postgres` is the only referral layer importing
-  Prisma. It owns locks, claims, SQL error classification, transaction-aware
-  onboarding, keyset provisioning, and cursor queries.
-- `referral/http` owns guarded routes, DTO validation, stable error mapping,
-  Swagger annotations, no-store headers, and response shaping.
-- `referral/composition` integrates registration and wallet application
-  boundaries without exporting infrastructure to other domains.
-- `ReferralModule` imports sessions and wallet modules, exports only trusted
-  onboarding and eligibility-close application tokens, and registers no public
-  delivery/provisioning controller.
-
-### Mobile boundaries
-
-```text
-ReferralScreen / ApplyReferralCodeScreen
-  -> ReferralStore observable state
-  -> ReferralFlowService commands
-       -> SessionFlowService.withAccess(...)
-       -> ReferralApi cold Observables
-       -> ReferralNativeActions cold copy/share Observables
-
-App-level ReferralLinkCoordinator
-  -> signed-out editable registration promo
-  -> signed-in explicit ApplyReferralCode navigation
-```
-
-`ReferralCompositionRoot` receives the existing authenticated request/session
-capability, owns store/flow/native actions, and disposes before auth root. The
-flow epochs session identity, aborts in-flight work, and clears private data on
-logout/replacement. Components hold only ephemeral form text where necessary;
-server/screen state belongs solely to MobX.
-
-## Core Design
-
-### Promo codes
-
-- Exactly 12 uppercase characters from
-  `23456789ABCDEFGHJKMNPQRSTVWXYZ`; the alphabet removes `0`, `1`, `I`, `L`,
-  `O`, and `U`.
-- Boundary handling is `trim -> uppercase -> exact regex`. Maximum raw request
-  length remains 64 to match pending registration storage; canonical storage is
-  12 characters.
-- Generation uses Node `crypto.randomBytes` with rejection sampling and up to
-  eight retries after a database unique collision. Roughly 59 bits of space and
-  no identity-derived input prevent practical prediction.
-- Invalid, unknown, and codes owned by a `SUSPENDED` user share
-  `REFERRAL_CODE_UNAVAILABLE`. New attachments require an `ACTIVE` owner;
-  database uniqueness remains authoritative, while self/conflict/closed cases
-  remain actionable. Suspension after attachment does not alter the immutable
-  relationship or stop delivery/recovery of its captured entitlement.
-- Link format is `kaynann://register?promo=<CODE>`. Links never auto-apply.
-
-### Persistence
-
-Concrete models and SQL invariants are defined in [data-model.md](./data-model.md):
-
-- `ReferralPromoCode`: one immutable unique canonical code per user.
-- `ReferralEligibility`: `OPEN`, `ATTACHED`, or `CLOSED`; the shared row lock for
-  apply-vs-purchase ordering.
-- `ReferralRelationship`: immutable inviter/invitee/channel facts, unique
-  invitee, public UUID, monotonic `bigint` sequence.
-- `ReferralBonusEntitlement`: immutable captured wallet command plus mutable
-  leased delivery metadata.
-
-Prisma expresses relations, enums, ordinary indexes, and ordinary uniqueness.
-Reviewed SQL adds canonical-code and state checks, self-referral prevention,
-partial welcome uniqueness, lease/delivery checks, transition restrictions,
-and immutable promo/relationship/entitlement-fact triggers. Foreign keys use
-`RESTRICT`. Migration code neither provisions users nor credits wallet.
-
-### Registration integration
-
-For registration without promo:
-
-1. Existing OTP/legal/install validation remains unchanged.
-2. Existing completion identity and session credentials are prepared.
-3. In the serializable Prisma transaction, user/legal/session effects run as
-   today, then onboarding provisions promo and `OPEN` eligibility.
-4. A genuinely new user receives one captured welcome entitlement; an existing
-   user receives no retroactive entitlement.
-5. Commit, preserve current registration response, mark Redis completion, then
-   attempt bounded inline delivery; recovery owns failures.
-
-For registration with promo, canonicalize/resolve before `beginCompletion` so a
-bad value remains editable. Inside the same database transaction, lock the
-invitee eligibility, re-resolve owner, reject self, create relationship plus
-inviter entitlement, and set `ATTACHED`. New-user welcome remains exactly one;
-there is no second invitee entitlement. Unknown/self code fails registration
-without creating user/session/referral facts. Concurrent/repeated completion is
-arbitrated by existing completion identity plus database uniqueness.
-
-A crash after database commit cannot lose entitlements. If Redis completion or
-the caller response is interrupted, existing registration recovery returns the
-same credentials; onboarding uniqueness returns the same durable facts. Wallet
-may not yet be visible, but normal inline/scheduled delivery targets the
-five-second visibility objective. Its acceptance clock starts when success is
-returned and runs with healthy PostgreSQL, Redis where registration requires
-it, and wallet boundary, the one-second scheduler enabled, no injected failure,
-and authenticated read polling at most 100 milliseconds apart.
-
-### Post-registration apply and eligibility lock
-
-`POST /v1/referrals/applications` uses session-derived identity and no
-`Idempotency-Key`: exactly one relationship is the natural durable result.
-Apply locks eligibility, validates code owner, and atomically creates
-relationship/inviter entitlement. Same-code replay returns
-`ALREADY_ATTACHED`; another code returns `REFERRAL_ALREADY_ATTACHED`; a closed
-row returns `REFERRAL_ELIGIBILITY_CLOSED`.
-
-Future `CloseReferralEligibility` accepts trusted `userId`, stable successful
-purchase key, and success time. It is idempotent and has no controller. Apply
-and close lock the same row; whichever transaction commits its valid transition
-first wins. This plan does not create a purchase table or infer failed status.
-
-### Bonus configuration and delivery
-
-- Add `REFERRAL_WELCOME_BONUS_ML` and `REFERRAL_INVITER_BONUS_ML` to the Zod
-  environment schema and examples.
-- Parse canonical positive decimal strings to `bigint` in
-  `1..9223372036854775807`; fail startup on missing required production values
-  or invalid values. Development/test default to `10000` and `5000`.
-- Capture amount, beneficiary, key, operation kind, source, and occurred time in
-  the entitlement. Later config changes affect only new rows.
-- Call `WalletCommandService.credit` with business key
-  `referral_bonus:<entitlement-uuid>`, source `REFERRAL_PROGRAM`, and kind
-  `REFERRAL_WELCOME_BONUS` or `REFERRAL_INVITER_BONUS`.
-- Perform one bounded post-commit inline attempt. The scheduled worker claims 25
-  due/expired rows using `FOR UPDATE SKIP LOCKED`, a 30-second lease, and a
-  one-second non-overlapping schedule. Retry delay grows from one second to five
-  minutes with jitter. Transient obligations have no discard limit.
-- Wallet success/replay conditionally sets `DELIVERED`; immutable-fact conflict
-  sets `PERMANENT_FAILURE` and emits high-severity structured diagnostics. No
-  recovery status is public.
-- `referral:recover` reuses the claim service for safe operations; it cannot
-  write wallet projection/ledger directly.
-
-### Existing-user rollout
-
-Use an application backfill plus lazy repair, not migration data generation:
-
-1. Deploy the reviewed schema migration.
-2. Deploy compatible application code and drain old writers that do not
-   provision referral records.
-3. Keep referral reads safe through lazy provisioning during the rollout.
-4. Run `referral:provision -- --dry-run` and inspect structured counters.
-5. Run bounded UUID-keyset batches and repeat until verification reports zero
-   users without promo and eligibility records.
-6. Expose referral navigation through normal release sequencing after
-   verification. No runtime feature-flag dependency is introduced.
-
-The command creates only promo and `OPEN` eligibility rows. Randomness belongs
-to application code; batch commits avoid table-wide locks. Migration rollback
-means PostgreSQL transaction rollback when application of the reviewed SQL
-fails; no destructive down migration is provided. After a migration has been
-deployed, operational rollback consists of disabling referral exposure and
-applying a reviewed fix-forward migration. Issued promo codes and referral
-records are never deleted as rollback behavior.
-
-### Public API
-
-The source contract is [contracts/openapi.yaml](./contracts/openapi.yaml).
-
-| Method and route | Result |
-| --- | --- |
-| `GET /v1/referrals/me` | Own code/link, eligibility, attached code when applicable, current inviter reward, successfully credited total and count |
-| `POST /v1/referrals/applications` | Explicit code attachment or same-code replay |
-| `GET /v1/referrals/invitations` | Successfully credited masked newest-first history, default 20/max 100 |
-
-All routes use `AccessSessionGuard`, derive identity from the session, return
-`Cache-Control: no-store`, and use explicit DTOs. Exact millilitres are strings.
-History includes only delivered inviter entitlements and labels `**NN`; it omits
-phones, both user IDs, wallet keys, entitlement/lease/error fields, and database
-columns. Cursor is opaque base64url `{v:1,beforeSequence:"..."}` and queries
-`sequence < cursor` with `limit + 1`.
-
-Stable public errors include `REFERRAL_CODE_UNAVAILABLE`,
-`REFERRAL_SELF_NOT_ALLOWED`, `REFERRAL_ALREADY_ATTACHED`,
-`REFERRAL_ELIGIBILITY_CLOSED`, and `REFERRAL_SERVICE_UNAVAILABLE`, plus existing
-authentication errors. There are no public bonus, recovery, backfill,
-eligibility-close, inviter-change, relationship-delete, or wallet-credit routes.
-
-The existing aggregate Swagger generator/snapshot moves from the feature-004
-contract location to feature 005 and must retain every auth and wallet route.
-
-### Mobile behavior
-
-- `ReferralApi` wraps `fetch` in `defer`, validates exact public shapes, attaches
-  access session through the current flow, and aborts on unsubscribe.
-- `ReferralStore` owns summary, history, cursor, initial/refresh/page/apply,
-  validation/success/closed/retry states and computed presentation states.
-- `ReferralFlowService` reacts to session identity, uses generation checks,
-  cancels on logout/replacement, performs joined initial reads, resets pagination
-  on refresh, serializes load-more, and never lets stale work mutate state.
-- One app-lifecycle link coordinator consumes initial and later URLs once.
-  Signed-out links update editable pending registration context; signed-in links
-  navigate with a prefilled code but require confirmation. Attached/closed users
-  see deterministic states.
-- `ReferralScreen` uses API amounts and masked history; it supports loading,
-  empty, loaded, refresh, retry, pagination, copy, and share. The apply screen
-  supports local format feedback without duplicating backend ownership rules.
-- A minimal authenticated native stack contains Wallet, Referral, and Apply.
-  Logout, session restoration, auth navigation, and back behavior remain intact.
-
-Dependency decision:
-
-| Candidate | Decision | Reason |
-| --- | --- | --- |
-| `expo-clipboard` | Select during implementation via Expo SDK-aware install | Core RN has no supported Clipboard API; SDK 54-compatible module provides exact code copy with small, bounded native cost. |
-| React Native `Share` | Use existing platform API | Correct text/link share sheet; no dependency. |
-| `expo-sharing` | Reject | File sharing does not solve invitation text. |
-| `expo-linking` | Reject | Existing RN `Linking` and configured custom scheme are sufficient. |
-| Expo Router, bottom-tabs, icon/SVG, persistence libraries | Reject | Broad migration or unnecessary state/assets; no required guarantee. |
+- Registration provisioned eligibility and a `WELCOME` entitlement for every new user before optional inviter application.
+- `ReferralApplicationService` and its repository exposed post-registration apply; the controller exposed `POST /v1/referrals/applications`.
+- `ReferralEligibilityService` and `CloseReferralEligibility` retained purchase-based eligibility, although no external consumer was found.
+- Summary/DTO/mobile API exposed eligibility and attached code.
+- Recovery claimed all entitlement kinds and could reach wallet after a service-layer flag check; a wallet-transaction guard did not exist.
+- Env schema/templates required welcome and inviter amounts.
+- The root package had no operational toggle scripts; the API had only the separate internal metrics-token pattern.
+- Mobile constructed referral state unconditionally, always showed the wallet/navigation entry and phone-registration promo input, and routed signed-in deep links to `ApplyReferralCodeScreen`.
+- At planning time, existing spec artifacts and tests encoded the superseded behavior. The regenerated `tasks.md` is the source of truth for current implementation progress.
 
 ## Project Structure
 
@@ -358,389 +70,332 @@ Dependency decision:
 
 ```text
 specs/005-referral-program/
+├── spec.md
 ├── plan.md
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
-├── spec.md
-├── checklists/
-│   ├── acceptance.md                  # Phase 9 validation evidence
-│   └── mobile-visual.md               # Phase 8 manual evidence
 ├── contracts/
-│   ├── internal-referral-commands.md
-│   └── openapi.yaml
-└── tasks.md                         # generated later by speckit-tasks
+│   ├── openapi.yaml
+│   ├── openapi.generated.json
+│   ├── operational-feature-flag.openapi.yaml
+│   └── internal-referral-commands.md
+└── tasks.md                 # intentionally unchanged by speckit-plan
 ```
 
-### Planned API files
+### Existing Source Areas
 
 ```text
 apps/api/
-├── package.json                     # add provision/recover/PG test scripts
-├── .env.example                     # document exact bonus configuration
 ├── prisma/
-│   ├── schema.prisma                # referral enums/models/relations
-│   └── migrations/<timestamp>_add_referral_program/migration.sql
+│   ├── schema.prisma
+│   └── migrations/
 ├── src/
-│   ├── app.module.ts
-│   ├── config/env.ts
-│   ├── openapi/generate-openapi.ts  # feature-005 aggregate snapshot target
 │   ├── auth/application/registration.service.ts
-│   └── referral/
-│       ├── referral.module.ts
-│       ├── domain/
-│       │   ├── promo-code.ts
-│       │   ├── referral-errors.ts
-│       │   ├── referral-types.ts
-│       │   └── phone-mask.ts
-│       ├── application/
-│       │   ├── ports/referral.repository.ts
-│       │   ├── referral-application.service.ts
-│       │   ├── referral-query.service.ts
-│       │   ├── referral-bonus-delivery.service.ts
-│       │   ├── referral-recovery.service.ts
-│       │   ├── referral-provisioning.service.ts
-│       │   └── referral-registration.integration.ts
-│       ├── composition/
-│       │   ├── referral-recovery.scheduler.ts
-│       │   └── close-referral-eligibility.ts
-│       ├── infrastructure/postgres/
-│       │   ├── prisma-referral.repository.ts
-│       │   └── referral-cursor.ts
-│       ├── http/
-│       │   ├── dto/referral-request.dto.ts
-│       │   ├── dto/referral-response.dto.ts
-│       │   ├── referral-response.mapper.ts
-│       │   ├── referral-response.mapper.spec.ts
-│       │   ├── referral-error.filter.ts
-│       │   └── referral.controller.ts
-│       └── cli/
-│           ├── provision-referrals.ts
-│           └── recover-referral-bonuses.ts
-└── test/
-    ├── openapi.contract-spec.ts
-    ├── referral-http.contract-spec.ts
-    ├── referral-migration.integration-spec.ts
-    ├── referral-postgres.fixture.ts
-    ├── referral-repository.integration-spec.ts
-    ├── referral-concurrency.integration-spec.ts
-    ├── referral-recovery.integration-spec.ts
-    └── referral-registration.integration-spec.ts
-```
+│   ├── config/env.ts
+│   ├── observability/internal-metrics.guard.ts
+│   ├── referral/
+│   │   ├── application/
+│   │   ├── composition/
+│   │   ├── domain/
+│   │   ├── http/
+│   │   └── infrastructure/postgres/
+│   ├── wallet/application/
+│   └── wallet/infrastructure/postgres/
+├── test/referral-*.integration-spec.ts
+└── .env.example
 
-Small co-located `*.spec.ts` files accompany domain, application, cursor,
-configuration, scheduler, and provisioning units. Existing auth/wallet tests are
-modified only where the integration surface or aggregate OpenAPI snapshot
-requires regression assertions.
-
-### Planned mobile files
-
-```text
 apps/mobile/
-├── package.json                     # add SDK-aligned expo-clipboard
-└── src/
-    ├── App.tsx                      # compose/dispose referral lifecycle
-    ├── api/referral-api.ts
-    ├── api/referral-api.spec.ts
-    ├── navigation/
-    │   ├── RootNavigator.tsx
-    │   ├── AuthNavigator.tsx        # delegate link ownership
-    │   ├── MainNavigator.tsx
-    │   ├── MainNavigator.spec.tsx
-    │   ├── referral-link-coordinator.ts
-    │   └── referral-link-coordinator.spec.ts
-    └── referral/
-        ├── referral-composition-root.ts
-        ├── native/referral-native-actions.ts
-        ├── native/referral-native-actions.spec.ts
-        ├── screens/ReferralScreen.tsx
-        ├── screens/ReferralScreen.spec.tsx
-        ├── screens/ApplyReferralCodeScreen.tsx
-        ├── screens/ApplyReferralCodeScreen.spec.tsx
-        ├── services/referral-flow.service.ts
-        ├── services/referral-flow.service.spec.ts
-        ├── stores/referral.store.ts
-        └── stores/referral.store.spec.ts
+├── src/
+│   ├── App.tsx
+│   ├── api/
+│   ├── auth/
+│   ├── navigation/
+│   ├── referral/
+│   └── wallet/
+└── __tests__/
+
+scripts/
+package.json
 ```
 
-**Structure Decision**: Preserve the implemented feature-002/004 module and
-composition conventions. Do not create a shared package or leak Prisma types
-beyond infrastructure/composition adapters.
+**Structure Decision**: Extend the current API/mobile modules. Put public availability in a small app-config/feature module shared by auth and referral, keep operator controller/guard isolated from public Swagger, and preserve referral domain/repository boundaries. Do not add a new service or shared package.
 
-## Implementation Phases
+## Persistence and Concurrency Design
 
-### Phase 1: Domain contracts, configuration, and promo rules
+### Authoritative Flag
 
-**Goal**: Establish exact framework-free invariants and fail-fast policy before
-persistence work.
+Add `ReferralFeatureState` as defined in `data-model.md`. All API instances query the same PostgreSQL row; no in-memory authoritative cache. The public config response uses `Cache-Control: no-store`. Storage failures do not assume enabled.
 
-**Files**: referral domain/application port files, config schema/provider and
-tests, `.env.example`, internal contract tests.
+### Registration Atomicity
 
-**Dependencies**: none.
+The existing serializable registration transaction is retained. Referral onboarding first takes a shared lock/read on the feature row. Disabled/unavailable means promo context is discarded and registration continues. Enabled completion provisions a code and, for a valid non-self pending code, writes relationship and inviter entitlement atomically. Existing registration result identity plus unique invitee/relationship/event constraints handles retry and competing codes.
 
-**Work**: implement CSPRNG generation/canonicalization/collision classification,
-exact `bigint` bonus config, eligibility/entitlement types, phone masking,
-cursor value, stable errors, repository/registration/purchase command ports.
-
-**Minimum validation**:
-`pnpm --filter @kaynann/api test -- promo-code referral-config phone-mask` and
-`pnpm --filter @kaynann/api typecheck`.
-
-**Completion**: unit tests prove alphabet/format, rejection sampling boundary,
-eight collision retries, invalid/unknown error equivalence, exact 10,000/5,000
-test defaults, invalid startup values, no invitee referral bonus, and masked
-output. This closes floating-point, predictability, config, and enumeration risk.
-
-### Phase 2: Prisma migration and existing-user provisioning
-
-**Goal**: Make all durable invariants database-verifiable without changing
-balances or existing users during migration.
-
-**Files**: Prisma schema/migration, generated client, Prisma repository
-provisioning primitives, provisioning service/CLI/tests, API scripts.
-
-**Dependencies**: Phase 1.
-
-**Work**: add models/enums/checks/indexes/triggers; validate fresh, feature-002,
-and feature-004 upgrades; add dry-run/keyset/idempotent provisioning plus lazy
-repair; add the opt-in `test:referral:postgres` script before repository phases
-consume it; document rolling rollout.
-
-**Minimum validation**: Prisma format/validate/generate, targeted migration test
-with `RUN_POSTGRES_INTEGRATION=1`, and provisioning unit test.
-
-**Completion**: reviewed SQL passes all upgrade paths; mutation triggers and
-unique/check constraints fail correctly; dry run writes nothing; rerun is safe;
-existing users get codes/OPEN eligibility and no entitlement or wallet entry.
-
-### Phase 3: Referral repository, concurrency, and immutability
-
-**Goal**: Implement transactional relationship/application/query behavior with
-database-authoritative races.
-
-**Files**: repository port, Prisma repository/cursor, application/query services,
-unit and PostgreSQL tests.
-
-**Dependencies**: Phase 2.
-
-**Work**: lock eligibility, attach/replay/conflict/self/closed flows, atomically
-persist the relationship plus complete inviter-entitlement fact snapshot, future
-eligibility-close command, deterministic history and summary, 250-item cursor
-traversal, immutable relationship tests. Phase 3 stores only referral-domain
-facts; wallet operation mapping and delivery remain Phase 4 responsibilities.
-
-**Minimum validation**:
-`RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:postgres`
-targeted to repository/concurrency files.
-
-**Completion**: 100-way same-code creates one relationship; competing codes
-produce one winner and deterministic conflicts; apply-vs-close follows commit
-order; one inviter per invitee and self/UPDATE/DELETE are database-rejected;
-owner isolation and pagination are proven.
-
-### Phase 4: Entitlements, wallet delivery, and recovery
-
-**Goal**: Guarantee no lost obligation and exactly one wallet effect across
-timeouts, failures, restarts, and concurrent workers.
-
-**Files**: delivery/recovery services, scheduler, recovery CLI, repository claim
-SQL, module wiring, scripts, unit/PostgreSQL recovery tests.
-
-**Dependencies**: Phase 3 and existing wallet feature 004.
-
-**Work**: create welcome entitlements, deliver already-persisted inviter
-entitlements without recreating them, inline attempt, `SKIP LOCKED` claims,
-leases, conditional completion, retry/backoff/jitter, permanent-conflict
-classification, structured metrics/logs, safe one-shot recovery.
-
-**Minimum validation**: targeted service tests plus real PostgreSQL recovery and
-wallet reconciliation tests.
-
-**Completion**: process interruption after wallet credit replays one ledger
-entry; concurrent/expired leases are safe; temporary failure remains recoverable;
-config changes do not alter existing entitlements; manual retry cannot mutate
-balance directly. This closes lost/duplicate bonus risk without a queue.
-
-### Phase 5: Registration completion integration
-
-**Goal**: Complete pending-promo and welcome behavior without changing OTP,
-legal, registration response, credentials, or session issuance.
-
-**Files**: transaction-aware onboarding adapter, referral module, registration
-service/module integration, Redis/auth referral regression tests, API scripts.
-
-**Dependencies**: Phases 2-4.
-
-**Work**: prevalidate editable pending context; run provisioning, new-user
-welcome, optional relationship/inviter entitlement inside the existing
-serializable transaction; invoke inline delivery after commit; preserve
-completion recovery; add the opt-in `test:referral:registration` script before
-the phase completion gate invokes it.
-
-**Minimum validation**:
-`RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:registration`
-plus existing registration contract tests.
-
-**Completion**: no-promo registration earns one welcome; valid promo adds only
-one inviter bonus; pending data causes no pre-OTP/legal effect; invalid/self is
-editable and atomic; repeat/concurrent completion duplicates neither records nor
-wallet effects; existing users receive no retroactive welcome.
-
-### Phase 6: Authenticated referral API and OpenAPI
-
-**Goal**: Expose only the minimum privacy-safe own-data contract.
-
-**Files**: controller, DTOs, filter, response mapper, module/app wiring, source
-Swagger annotations, generated aggregate target/snapshot, HTTP/OpenAPI tests.
-
-**Dependencies**: Phases 3-5.
-
-**Work**: implement three guarded routes, no-store, exact string shaping,
-masked history, bounded opaque cursor, stable errors, and same-code replay.
-
-**Minimum validation**:
-`pnpm --filter @kaynann/api test -- referral-http openapi` followed by
-`pnpm --filter @kaynann/api openapi:generate && pnpm --filter @kaynann/api openapi:check`.
-
-**Completion**: cross-user requests are impossible because routes accept no
-owner ID; snapshots match source; auth/wallet routes remain; forbidden public
-bonus/recovery/lock/wallet-write endpoints are absent; no internal field leaks.
-
-### Phase 7: Mobile API, store, flow, and deep links
-
-**Goal**: Add session-safe reactive data/application behavior before UI styling.
-
-**Files**: `ReferralApi`, store, flow, composition root, native-actions adapter,
-app-level link coordinator, unit tests, package dependency update.
-
-**Dependencies**: Phase 6; Expo-compatible `expo-clipboard` installation is an
-explicit dependency-change task requiring implementation approval.
-
-**Work**: cold abortable requests, strict response mapping, session generation,
-initial load/retry/refresh/page/apply, copy/share Observables, one-shot deep-link
-routing, logout/replacement cancellation and stale-response protection.
-
-**Minimum validation**:
-`pnpm --filter @kaynann/mobile test -- referral` and
-`pnpm --filter @kaynann/mobile typecheck`.
-
-**Completion**: network work is cold/cancellable; session restoration reloads;
-logout/replacement clears data; stale requests cannot commit; pagination is
-serialized; signed-out links populate registration and signed-in links prefill
-explicit apply exactly once.
-
-### Phase 8: Minimal referral UI and navigation
-
-**Goal**: Deliver accessible responsive referral/application screens without a
-home redesign or mockup-derived business rules.
-
-**Files**: referral screens, main/root/auth navigators, App composition, screen
-and navigation tests.
-
-**Dependencies**: Phase 7.
-
-**Work**: minimal Wallet-to-Referral entry, native stack/back behavior, hero/code
-card, copy/share, explanation, credited total/history, apply confirmation,
-loading/empty/error/success/closed/pagination states and accessible labels/roles.
-
-**Minimum validation**: targeted mobile tests, lint/typecheck, mobile JS build,
-and manual iOS/Android visual/deep-link check.
-
-**Completion**: server values drive all amounts/text; labels are masked; mockup
-20 L/full names/reward-after-purchase/sample data/tabs are absent; logout and
-auth navigation remain intact across phone sizes.
-
-### Phase 9: Regression, PostgreSQL acceptance, and full validation
-
-**Goal**: Prove feature invariants and preserve completed features 002-004.
-
-**Files**: acceptance/concurrency/migration/security/performance tests,
-quickstart/readme/script documentation, generated OpenAPI snapshot.
-
-**Dependencies**: Phases 1-8.
-
-**Work**: complete 100-way races, concurrent invitees, rollback, lease/process
-interruption, 250-history traversal, privacy and forbidden-endpoint checks; run
-auth, ESLint, wallet, build, format, and migration regression.
-
-**Minimum validation**: all commands in the Validation Matrix, including both
-opt-in service-backed suites.
-
-**Completion**: every acceptance scenario in spec is automated or explicitly
-manual for native visuals; T086 records separate iOS and Android SC-005 timing
-evidence; T090 and T092 exercise the real one-second recovery scheduler and
-authenticated reads for both SC-006 paths; all gates pass; no product behavior
-from purchase, payment, machine, MQTT, dispensing, or source buckets is present.
-
-## Validation Matrix
-
-Commands below already exist unless marked **planned**; tasks must add planned
-scripts before invoking them.
-
-| Concern | Command |
-| --- | --- |
-| Prisma format | `pnpm --filter @kaynann/api exec prisma format --schema prisma/schema.prisma` |
-| Prisma validate | `pnpm --filter @kaynann/api exec prisma validate --schema prisma/schema.prisma` |
-| Prisma client | `pnpm db:generate` |
-| Reviewed migration apply | `pnpm db:migrate` against disposable/local PostgreSQL after SQL review |
-| API lint | `pnpm lint:api` |
-| Mobile lint | `pnpm lint:mobile` |
-| Workspace lint | `pnpm lint` |
-| Formatting | `pnpm format:check` |
-| API typecheck | `pnpm --filter @kaynann/api typecheck` |
-| Mobile typecheck | `pnpm --filter @kaynann/mobile typecheck` |
-| Workspace typecheck | `pnpm typecheck` |
-| API referral unit/HTTP | `pnpm --filter @kaynann/api test -- referral` |
-| Mobile referral | `pnpm --filter @kaynann/mobile test -- referral src/navigation/MainNavigator.spec.tsx` |
-| PostgreSQL referral | **planned in Phase 2** `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:postgres` |
-| Registration + Redis | **planned in Phase 5** `RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:registration` |
-| Provision dry run | **planned** `pnpm --filter @kaynann/api referral:provision -- --dry-run` |
-| Recovery one-shot | **planned** `pnpm --filter @kaynann/api referral:recover` |
-| Auth regression | `pnpm --filter @kaynann/api test -- phone-auth registration session pending-promo` and `pnpm --filter @kaynann/mobile test -- auth registration session` |
-| Wallet regression | `pnpm --filter @kaynann/api test -- wallet` and `pnpm --filter @kaynann/mobile test -- wallet` |
-| Intentional OpenAPI regeneration | `pnpm --filter @kaynann/api openapi:generate` only after an intentional source-contract change |
-| OpenAPI consistency gate | `pnpm --filter @kaynann/api openapi:check` without preceding generation; fails when the committed snapshot is stale |
-| API build | `pnpm build:api` |
-| Mobile JS build | `pnpm build:mobile:js` |
-| Default test suite | `pnpm test` (service-backed suites remain opt-in) |
-
-Acceptance requires both opt-in suites with isolated PostgreSQL schemas and a
-test Redis instance, then workspace lint, format, typecheck, tests, OpenAPI
-check, and both builds. Migration validation covers empty, feature-002, and
-feature-004 databases. Mock/SQLite tests cannot replace database guarantees.
-
-## Risks And Controls
+Promo prevalidation must not run before the flag decision in a way that blocks disabled registration. No referral state is written before OTP, legal acceptance, and final completion.
+
+### Disable/Credit Barrier
+
+Service-layer checks do not close the recovery race because wallet credit runs in a separate transaction. Add a narrow trusted referral wallet command/repository path that obtains a shared lock on `ReferralFeatureState` inside the wallet mutation transaction immediately before ledger insert. Operational PUT obtains an exclusive lock. Therefore:
+
+- an already guarded registration/credit completes before the disable response; or
+- disable wins, and the later operation observes disabled and creates nothing.
+
+The successful PUT response is the external boundary after which no new referral credit starts. Wallet business-event uniqueness still resolves crash-after-commit ambiguity.
+
+### Recovery
+
+Claims filter to `INVITER` and require enabled state. Disabled scheduled/inline runs claim zero. A claim that cannot pass the wallet guard is released to retryable pending; lease identity and event key stay unchanged. Re-enable resumes due obligations with existing backoff and `SKIP LOCKED` concurrency. Historical `WELCOME` rows are retained but inert.
+
+## API and Security Design
+
+### Public
+
+- `GET /v1/app-config`, no auth, returns only `features.referralProgramEnabled`, `no-store`.
+- `GET /v1/referrals/me`, authenticated, returns code/link/inviter totals with no eligibility/attached code.
+- `GET /v1/referrals/invitations`, authenticated, preserves bounded opaque-cursor history.
+- Disabled referral reads return HTTP 503 and stable `FEATURE_DISABLED`; storage failures use retryable `REFERRAL_SERVICE_UNAVAILABLE`.
+- `POST /v1/referrals/applications` and its DTO/mapper/contract are removed, not deprecated in place.
+
+### Operational
+
+- `GET /internal/feature-flags/referral-program` reads state.
+- `PUT /internal/feature-flags/referral-program` accepts exactly `{enabled:boolean}`.
+- Dedicated `REFERRAL_OPERATIONS_TOKEN`, timing-safe bearer comparison, `no-store`, excluded from Swagger.
+- Missing/invalid token returns 401 without state; request validation occurs after authentication.
+- Same-value PUT does not advance revision; real transition increments once.
+- Never log authorization, echo secrets, accept query credentials, or expose operational fields publicly.
+
+### Operator Scripts
+
+Root scripts:
+
+```json
+{
+  "referral:enable": "node scripts/set-referral-feature.mjs enabled",
+  "referral:disable": "node scripts/set-referral-feature.mjs disabled"
+}
+```
+
+The helper requires `REFERRAL_OPERATIONS_URL` and `REFERRAL_OPERATIONS_TOKEN`, performs strict PUT, validates JSON, then GET-verifies authoritative state. It exits non-zero on every HTTP/network/schema/mismatch failure and never prints the credential. Curl uses the same contract and variables.
+
+## Mobile Design
+
+The referral mockup `docs/design/mockups/06_referral_program_hd.png` was inspected. Keep its share-first hierarchy as visual direction only. Do not restore fixed rewards, purchase prerequisites, full names, or apply-code UI.
+
+- Add a strict typed app-config adapter and one MobX `FeatureAvailabilityStore` with unknown/loading/enabled/disabled/error state.
+- Add an RxJS service using `switchMap` for startup and refresh so stale responses cannot win; expose `dispose()`.
+- Inject the single store through `App.tsx`, auth composition, referral composition, and navigation; do not duplicate availability in React state or `ReferralStore`.
+- Treat unknown/error as hidden. Omit referral route/card/actions and phone-entry promo field unless enabled.
+- On enabled to disabled: advance request generation, unsubscribe in-flight referral work, clear referral store, leave an open referral route, clear/persist-null registration promo, and prevent OTP callbacks from sending it.
+- Remove signed-in deep-link behavior. Anonymous links only populate editable registration context while availability is enabled.
+- A `FEATURE_DISABLED` referral response updates availability to disabled and clears state; public config remains primary authority.
+- Re-enable refreshes availability and referral data but never restores discarded promo context.
+
+## File Change Map
+
+Exact filenames may be refined by existing naming conventions during task generation; boundaries below are fixed.
+
+### Existing Files to Modify
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/src/auth/application/registration.service.ts`
+- `apps/api/src/config/env.ts`
+- `apps/api/.env.example`
+- `apps/api/src/referral/referral.module.ts`
+- `apps/api/src/referral/application/ports/referral.repository.ts`
+- `apps/api/src/referral/application/referral-registration.integration.ts`
+- `apps/api/src/referral/application/referral-bonus-delivery.service.ts`
+- `apps/api/src/referral/application/referral-recovery.service.ts`
+- `apps/api/src/referral/application/referral-provisioning.service.ts`
+- `apps/api/src/referral/application/referral-query.service.ts`
+- `apps/api/src/referral/domain/referral-types.ts`
+- `apps/api/src/referral/domain/referral-errors.ts`
+- `apps/api/src/referral/http/referral.controller.ts`
+- `apps/api/src/referral/http/dto/referral-request.dto.ts`
+- `apps/api/src/referral/http/dto/referral-response.dto.ts`
+- `apps/api/src/referral/http/referral-response.mapper.ts`
+- `apps/api/src/referral/http/referral-error.filter.ts`
+- `apps/api/src/referral/infrastructure/postgres/prisma-referral.repository.ts`
+- `apps/api/src/referral/infrastructure/postgres/prisma-referral-registration.integration.ts`
+- `apps/api/src/wallet/application/wallet-command.service.ts`
+- `apps/api/src/wallet/application/ports/wallet.repository.ts`
+- `apps/api/src/wallet/infrastructure/postgres/prisma-wallet.repository.ts`
+- `apps/api/src/openapi/generate-openapi.ts` and public OpenAPI contract tests as required by the new controller
+- Referral/env/unit/integration tests under `apps/api/src/**` and `apps/api/test/referral-*.integration-spec.ts`
+- `apps/mobile/src/App.tsx`
+- `apps/mobile/src/api/referral-api.ts`
+- `apps/mobile/src/auth/auth-composition-root.ts`
+- `apps/mobile/src/auth/services/registration-flow.service.ts`
+- `apps/mobile/src/auth/services/otp-flow.service.ts`
+- `apps/mobile/src/auth/stores/registration.store.ts`
+- `apps/mobile/src/auth/screens/PhoneEntryScreen.tsx`
+- `apps/mobile/src/navigation/MainNavigator.tsx`
+- `apps/mobile/src/navigation/RootNavigator.tsx`
+- `apps/mobile/src/navigation/referral-link-coordinator.ts`
+- `apps/mobile/src/referral/referral-composition-root.ts`
+- `apps/mobile/src/referral/services/referral-flow.service.ts`
+- `apps/mobile/src/referral/stores/referral.store.ts`
+- `apps/mobile/src/referral/screens/ReferralScreen.tsx`
+- `apps/mobile/src/wallet/screens/WalletScreen.tsx`
+- Corresponding mobile specs and `apps/mobile/__tests__/phone-auth-flow.test.tsx`
+- Root `package.json`
+- `AGENTS.md` managed Spec Kit section
+
+### New Files
+
+- `apps/api/prisma/migrations/20260812000100_add_referral_feature_state/migration.sql`
+- `apps/api/prisma/migrations/20260812000200_drop_referral_eligibility/migration.sql`
+- API feature-state domain/port/service and Prisma repository files under the existing module layout
+- Public app-config controller/DTO and tests
+- Operational referral feature controller/DTO/guard and tests
+- `scripts/set-referral-feature.mjs` and its focused tests
+- `apps/mobile/src/api/app-config-api.ts` and tests
+- `apps/mobile/src/features/stores/feature-availability.store.ts` and tests, using the final existing directory convention
+- `apps/mobile/src/features/services/feature-availability.service.ts` and tests
+- `specs/005-referral-program/contracts/operational-feature-flag.openapi.yaml`
+
+### Files to Delete
+
+- `apps/api/src/referral/application/referral-eligibility.service.ts`
+- `apps/api/src/referral/application/referral-eligibility.service.spec.ts`
+- `apps/api/src/referral/composition/close-referral-eligibility.ts`
+- `apps/mobile/src/referral/screens/ApplyReferralCodeScreen.tsx`
+- `apps/mobile/src/referral/screens/ApplyReferralCodeScreen.spec.tsx`
+
+Post-registration methods inside shared application/repository/DTO files are deleted in place. No separate public apply contract file exists; the operation and schemas are removed from `contracts/openapi.yaml` and `openapi.generated.json`. `tasks.md` is not modified by this plan.
+
+## Implementation Stages
+
+These design stages are lettered to avoid ambiguity with the dependency-ordered
+implementation phases in `tasks.md`.
+
+### Stage A: Expand Schema and Configuration
+
+1. Add/seed `ReferralFeatureState` default enabled through migration and Prisma schema.
+2. Add authoritative read/shared-lock/exclusive-update repository behavior and concurrency tests using independent Prisma clients.
+3. Add `REFERRAL_OPERATIONS_TOKEN` env validation/template; remove welcome amount and its tests/default.
+4. Verify migration preserves all existing row counts and restarts retain state.
+
+Validation: Prisma generate/validation, env unit tests, focused PostgreSQL migration/state tests.
+
+### Stage B: Registration-Only Inviter Semantics
+
+1. Refactor onboarding to check/lock flag before promo validation/effects.
+2. Remove welcome creation and all invitee credit paths.
+3. Restrict relationship creation to final registration with `REGISTRATION` channel.
+4. Remove application/eligibility services, ports, errors, response fields, and module exports.
+5. Refactor provisioning to create stable promo code only.
+6. Remove `POST /v1/referrals/applications`; retain registration context edit/remove until completion.
+
+Validation: unit tests, registration no-code/valid/invalid/self, retry and competing-code PostgreSQL tests, explicit absence of welcome/invitee wallet operations, route contract test.
+
+### Stage C: Server Flag Enforcement and Operations
+
+1. Gate public referral queries with authoritative availability and stable errors.
+2. Add public app-config response.
+3. Gate claims and add trusted wallet-transaction referral credit guard.
+4. Add protected operational GET/PUT with idempotent revision semantics.
+5. Add root helper/scripts and env documentation.
+6. Prove toggle/registration and toggle/recovery lock order on multiple clients.
+
+Validation: operational auth/DTO/unit tests, API contracts, script tests, PostgreSQL race/restart/multi-instance/pause-resume/exactly-once tests.
+
+### Stage D: Mobile Availability and UI Removal
+
+1. Add app-config adapter, MobX availability store, and RxJS refresh/cancellation service.
+2. Inject availability into auth/referral composition and navigator observers.
+3. Hide every referral entry/screen/action and registration promo input when disabled/unknown.
+4. Clear referral and pending registration context on disable; block stale network publication.
+5. Delete apply screen/state/API and signed-in deep-link handling.
+6. Preserve enabled share/history UI and compare hierarchy against the mapped PNG.
+
+Validation: adapter parser/cancellation, store/service transitions/disposal, navigation/UI visibility, mid-flight disable, OTP promo suppression, signed-in link ignore, logout/session replacement, mobile typecheck/build, visual comparison.
+
+### Stage E: Contract Migration and Cleanup
+
+1. Confirm no runtime query or generated client references `ReferralEligibility`.
+2. Prepare the non-cascading contract migration and contracted Prisma schema while retaining legacy enums, channel, relationships, entitlements, and ledger.
+3. Run migration, preservation, compatibility, and forward-recovery acceptance in a disposable database before any production drain.
+4. Deploy the compatible backend, drain every old API instance, and approve the operational gate immediately before applying the prepared schema contraction.
+5. Apply the prepared migration, run post-apply preservation checks, regenerate the public OpenAPI artifact, and complete the targeted acceptance guide.
+
+Validation: forward-recovery rehearsal in a disposable database, row-count/checksum assertions, generated/source OpenAPI diff, and all referral acceptance suites. After contraction, the rehearsal must prove the new binary works with the contracted schema, reject rollback to any binary that reads `ReferralEligibility`, and recover through a corrected forward deployment rather than a down migration or recreation of semantic eligibility data.
+
+## Test Matrix
+
+### Unit
+
+- Flag parsing, state transition/revision, fail-closed errors, strict operational DTO/guard.
+- Registration integration creates only inviter entitlement and skips all effects disabled.
+- Recovery filters inviter kind and pauses/releases claims.
+- Script env, HTTP, response-schema, read-back mismatch, and secret-redaction cases.
+- MobX availability/referral/registration transitions and RxJS cancellation/disposal.
+
+### API Contract
+
+- Public app-config safe shape and no-store.
+- Removed POST route and removed eligibility/attached-code schemas.
+- `FEATURE_DISABLED` on both authenticated referral reads.
+- Operational GET/PUT success, repeat, invalid input, missing/wrong credential, unavailable storage.
+- OpenAPI source and generated JSON agree.
+
+### PostgreSQL Acceptance and Concurrency
+
+- Default enabled seed, persistence after restart, visibility from at least three clients.
+- Registration without code, valid code, invalid code, self-referral, disabled code, retry, and competing completion.
+- Toggle races registration in both lock orders with no partial facts.
+- Toggle races wallet delivery in both lock orders; successful disable is the no-new-credit boundary.
+- Disabled recovery claims/credits none; re-enable delivers one ledger entry exactly once after crash/retry.
+- Existing data is unchanged through disable/re-enable and eligibility contraction.
+
+### Mobile
+
+- Unknown/disabled hides navigation, screen, promo input, code/link/history/totals/copy/share.
+- Enabled preserves current inviter sharing/history experience.
+- Disable clears state, leaves route, cancels stale requests, clears remote/local pending promo, blocks OTP promo.
+- Signed-in/disabled deep links are ignored; re-enable does not resurrect context.
+- Session replacement/logout cleanup and explicit service disposal.
+
+## Rollout Order
+
+1. Prepare and pass the eligibility contract-migration suite in a disposable database without applying the contraction to a shared environment.
+2. Back up and measure referral/wallet data; apply the additive flag migration seeded enabled.
+3. Deploy backend supporting authoritative flag, inviter-only registration, removed apply route, paused recovery, public config, and operations API. Use rolling compatibility with eligibility table still present.
+4. Configure `REFERRAL_OPERATIONS_TOKEN`, validate curl and package scripts, verify all instances and restart persistence while enabled.
+5. Deploy availability-aware mobile. Old mobile versions may still show entry points, but backend enforcement returns `FEATURE_DISABLED`; new mobile hides them.
+6. Exercise disable/enable, recovery, registration, and preservation acceptance in a controlled environment.
+7. Drain old backend binaries, record and approve the pre-application gate, then apply the already tested eligibility contract migration.
+8. Run post-apply preservation checks, regenerate/verify contracts, and complete production monitoring checks.
+
+## Rollback Behavior
+
+- The flag defaults enabled for compatibility, but disable it before rollback when new referral writes must stop.
+- Backend rollback is allowed only to a binary compatible with the additive table and explicitly approved not to reintroduce forbidden welcome/apply effects.
+- Mobile rollback cannot override server enforcement; old UI may expose dead entry points, so prefer forward fix.
+- Do not reverse wallet credits, rewrite entitlements/relationships, delete promo codes, remove legacy enum values, or run destructive data down migrations.
+- If eligibility contraction has run, do not roll back to a binary that reads the table; restore application forward, not by recreating semantic eligibility data.
+
+## Risks and Controls
 
 | Risk | Control |
-| --- | --- |
-| Bonus exists durably but is not yet visible | Inline attempt plus one-second leased recovery, observable due/age counters, no finite transient discard |
-| Wallet succeeds before entitlement acknowledgement | Stable stored wallet facts and globally unique key make replay return the same ledger entry |
-| Concurrent apply/close or competing codes | One eligibility row lock, unique invitee, checks, and real PostgreSQL race tests |
-| Backfill misses users during rolling deploy | Drain incompatible writers, bounded rerunnable command, zero-missing verification, lazy repair |
-| Existing users receive accidental bonus | Migration/provisioning/lazy paths cannot create entitlements; PostgreSQL tests assert zero wallet changes |
-| Registration pending promo is lost/frozen | Validate before completion transition and revalidate in the database transaction |
-| Public privacy leak | Session-derived ownership, explicit response DTOs, fixed phone mask, no-store, contract/security tests |
-| Recovery workers overlap or die | `SKIP LOCKED`, lease expiry, conditional ownership updates, per-process overlap guard |
-| Promo brute force/enumeration | ~59-bit CSPRNG code, bounded input, same invalid/unknown error; broader rate limiting remains platform security work |
-| Custom deep link lacks install fallback | Preserve working scheme; universal links explicitly deferred pending domain infrastructure |
-| Clipboard native compatibility | Install through Expo SDK 54-aware tooling and validate native/JS build before UI completion |
+|---|---|
+| Credit commits after disable | Shared flag lock inside trusted wallet transaction; exclusive toggle lock; concurrency acceptance tests. |
+| Registration partially creates relationship | Shared flag lock and relationship/entitlement in existing serializable completion transaction. |
+| Multi-instance stale state | PostgreSQL read per operation, no authoritative process cache, no-store public refresh. |
+| Crash between wallet and entitlement completion | Stable event key, immutable ledger, replay reconciliation after re-enable. |
+| Legacy welcome delivery | Recovery query explicitly filters `INVITER`; legacy rows retained inert and tested. |
+| Rolling deploy reads dropped eligibility | Separate contract migration only after old instances are drained. |
+| Mobile stale request reveals data | RxJS switchMap/unsubscribe plus MobX generation invalidation and clear-on-disable. |
+| Pending promo survives disable | Availability reaction clears local and authorized server registration context; OTP getter fail-closed. |
+| Operator credential leak/escalation | Dedicated env secret, timing-safe bearer comparison, Swagger exclusion, no logs/query tokens/public fields. |
+| Script reports false success | Strict status/schema validation plus authenticated GET read-back and non-zero exit. |
+
+## Post-Design Constitution Re-check
+
+The design still passes every constitution gate. The only schema contraction is isolated after a compatible rollout and preserves all accounting facts. The only new security authority is a dedicated minimal operational bearer boundary. MobX and RxJS remain the sole long-lived mobile state/workflow owners. No broad abstraction, new dependency, destructive history rewrite, or unresolved clarification is introduced.
 
 ## Deferred Work
 
-- Production bonus values and any future policy versioning beyond captured
-  entitlement amounts.
-- Universal/App Links and web/install fallback.
-- First-successful-purchase implementation; feature 005 supplies only its
-  trusted eligibility boundary.
-- Referral abuse/fraud policy, device/phone velocity rules, and platform-wide
-  rate limiting beyond safe non-enumerating errors.
-- Bonus expiry, source buckets, bonus-first spending, payments, QR, map,
-  machines, MQTT, and dispensing.
-- Admin UI/endpoints and arbitrary manual balance or relationship mutation.
-
-## Complexity Tracking
-
-No constitution exception. Durable entitlements and a scheduler add operational
-state, but they are the smallest design that survives the existing independent
-wallet transaction boundary without a new queue or misleading atomicity claim.
+- `tasks.md` regeneration via a separate `speckit-tasks` run.
+- Any generic multi-feature flag platform; this plan implements the one required durable flag without preventing later extraction.
+- Removal of legacy `WELCOME`/`POST_REGISTRATION` enum values or channel audit data; intentionally out of scope because historical rows may reference them.

@@ -98,6 +98,7 @@ export class RegistrationStore {
     }
 
     reset(): void {
+        this.pendingPromoCode = undefined;
         this.legalSet = undefined;
         this.acceptedDocumentIds.clear();
         this.state = 'idle';

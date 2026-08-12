@@ -1,9 +1,10 @@
+import { reaction } from 'mobx';
 import { Linking } from 'react-native';
 
 import { parsePendingPromo } from './pending-promo-deep-link';
 
 import type { SessionStore } from '../auth/stores/session.store';
-import type { ReferralStore } from '../referral/stores/referral.store';
+import type { FeatureAvailabilityStore } from '../features/stores/feature-availability.store';
 
 export interface ReferralLinkSource {
     getInitialUrl(): Promise<string | null>;
@@ -12,9 +13,8 @@ export interface ReferralLinkSource {
 
 export interface PendingRegistrationPromoCommands {
     setPendingPromoCode(value: string): void;
+    removePendingPromoCode(): void;
 }
-
-export type SignedInReferralNavigation = () => boolean;
 
 export class ReactNativeReferralLinkSource implements ReferralLinkSource {
     getInitialUrl(): Promise<string | null> {
@@ -28,20 +28,26 @@ export class ReactNativeReferralLinkSource implements ReferralLinkSource {
 }
 
 export class ReferralLinkCoordinator {
-    private readonly handledPromoCodes = new Set<string>();
     private readonly unsubscribeFromLinks: () => void;
+    private readonly disposeAvailabilityReaction: () => void;
     private registrationCommands: PendingRegistrationPromoCommands | undefined;
-    private signedInNavigation: SignedInReferralNavigation | undefined;
     private pendingRegistrationPromo: string | undefined;
-    private pendingSignedInNavigation = false;
     private disposed = false;
 
     constructor(
         private readonly sessionStore: SessionStore,
-        private readonly referralStore: ReferralStore,
+        private readonly availability: FeatureAvailabilityStore,
         source: ReferralLinkSource = new ReactNativeReferralLinkSource(),
     ) {
         this.unsubscribeFromLinks = source.subscribe((url) => this.handleUrl(url));
+        this.disposeAvailabilityReaction = reaction(
+            () => availability.referralProgramEnabled,
+            (enabled) => {
+                if (enabled) return;
+                this.pendingRegistrationPromo = undefined;
+                this.registrationCommands?.removePendingPromoCode();
+            },
+        );
         void source.getInitialUrl().then(
             (url) => {
                 if (!this.disposed && url) this.handleUrl(url);
@@ -52,7 +58,7 @@ export class ReferralLinkCoordinator {
 
     bindRegistration(commands: PendingRegistrationPromoCommands): () => void {
         this.registrationCommands = commands;
-        if (this.sessionStore.state !== 'authenticated' && this.pendingRegistrationPromo) {
+        if (this.acceptsAnonymousLinks() && this.pendingRegistrationPromo) {
             commands.setPendingPromoCode(this.pendingRegistrationPromo);
         }
         return () => {
@@ -60,43 +66,24 @@ export class ReferralLinkCoordinator {
         };
     }
 
-    bindSignedInNavigation(openApplyScreen: SignedInReferralNavigation): () => void {
-        this.signedInNavigation = openApplyScreen;
-        this.openPendingSignedInPromo();
-        return () => {
-            if (this.signedInNavigation === openApplyScreen) this.signedInNavigation = undefined;
-        };
-    }
-
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
         this.unsubscribeFromLinks();
+        this.disposeAvailabilityReaction();
         this.registrationCommands = undefined;
-        this.signedInNavigation = undefined;
         this.pendingRegistrationPromo = undefined;
-        this.pendingSignedInNavigation = false;
-        this.handledPromoCodes.clear();
     }
 
     private handleUrl(url: string): void {
+        if (!this.acceptsAnonymousLinks()) return;
         const promoCode = parsePendingPromo(url)?.toUpperCase();
-        if (!promoCode || this.handledPromoCodes.has(promoCode)) return;
-        this.handledPromoCodes.add(promoCode);
-
-        if (this.sessionStore.state === 'authenticated') {
-            this.referralStore.prefillPromoCode(promoCode);
-            this.pendingSignedInNavigation = true;
-            this.openPendingSignedInPromo();
-            return;
-        }
-
+        if (!promoCode) return;
         this.pendingRegistrationPromo = promoCode;
         this.registrationCommands?.setPendingPromoCode(promoCode);
     }
 
-    private openPendingSignedInPromo(): void {
-        if (!this.pendingSignedInNavigation || !this.signedInNavigation) return;
-        if (this.signedInNavigation()) this.pendingSignedInNavigation = false;
+    private acceptsAnonymousLinks(): boolean {
+        return this.availability.referralProgramEnabled && this.sessionStore.state !== 'authenticated';
     }
 }

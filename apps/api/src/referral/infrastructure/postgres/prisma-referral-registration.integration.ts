@@ -1,9 +1,16 @@
+import { randomUUID } from 'node:crypto';
+
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { REFERRAL_REPOSITORY, type ReferralRelationshipRepository } from '../../application/ports/referral.repository';
-import { ReferralApplicationService } from '../../application/referral-application.service';
+import { loadEnv } from '../../../config/env';
+import { ReferralFeatureStateService } from '../../application/referral-feature-state.service';
 import { ReferralRecoveryService } from '../../application/referral-recovery.service';
 import { canonicalizePromoCode } from '../../domain/promo-code';
+import {
+    REFERRAL_INVITER_OPERATION_KIND,
+    REFERRAL_WALLET_SOURCE,
+    parseReferralMillilitres,
+} from '../../domain/referral-types';
 
 import { PrismaReferralRepository } from './prisma-referral.repository';
 
@@ -12,7 +19,7 @@ import type {
     CompleteReferralOnboardingResult,
     ReferralRegistrationIntegration,
 } from '../../application/referral-registration.integration';
-import type { PromoCode, ReferralEntitlementId } from '../../domain/referral-types';
+import type { ReferralEntitlementId } from '../../domain/referral-types';
 import type { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -20,52 +27,45 @@ export class PrismaReferralRegistrationIntegration implements ReferralRegistrati
     private readonly logger = new Logger(PrismaReferralRegistrationIntegration.name);
 
     constructor(
-        @Inject(REFERRAL_REPOSITORY)
-        private readonly repository: ReferralRelationshipRepository,
+        @Inject(ReferralFeatureStateService) private readonly featureState: ReferralFeatureStateService,
         @Inject(ReferralRecoveryService) private readonly recovery: ReferralRecoveryService,
     ) {}
-
-    async prevalidatePendingPromo(pendingPromoCode: string | null, inviteeUserId?: string): Promise<PromoCode | null> {
-        if (pendingPromoCode === null) return null;
-        const promoCode = canonicalizePromoCode(pendingPromoCode);
-        await this.repository.validatePromoCode(promoCode, inviteeUserId);
-        return promoCode;
-    }
 
     async completeOnboarding(
         transaction: Prisma.TransactionClient,
         input: CompleteReferralOnboardingInput,
     ): Promise<CompleteReferralOnboardingResult> {
         const repository = new PrismaReferralRepository(transaction);
-        const application = new ReferralApplicationService(repository);
+        const enabled = await this.featureState.isEnabledWithSharedLock(transaction);
         const provisioned = await repository.provisionUser({ userId: input.userId, createdAt: input.completedAt });
-        const entitlementIds: ReferralEntitlementId[] = [];
-
-        if (input.isNewUser) {
-            const welcome = await application.createWelcomeEntitlement({
-                userId: input.userId,
-                occurredAt: input.completedAt,
-            });
-            entitlementIds.push(welcome.entitlementId);
-        }
+        const inviterEntitlementIds: ReferralEntitlementId[] = [];
 
         let relationshipCreated = false;
-        if (input.pendingPromoCode !== null) {
-            const applied = await application.applyInternal({
+        if (enabled && input.pendingPromoCode !== null) {
+            const promoCode = canonicalizePromoCode(input.pendingPromoCode);
+            const entitlementId = randomUUID() as ReferralEntitlementId;
+            const applied = await repository.attachDuringRegistration({
                 inviteeUserId: input.userId,
-                promoCode: input.pendingPromoCode,
-                channel: 'REGISTRATION',
+                promoCode,
+                inviterEntitlement: {
+                    id: entitlementId,
+                    amountMl: parseReferralMillilitres(loadEnv().REFERRAL_INVITER_BONUS_ML),
+                    walletBusinessEventKey: `referral_bonus:${entitlementId}`,
+                    walletOperationKind: REFERRAL_INVITER_OPERATION_KIND,
+                    walletSource: REFERRAL_WALLET_SOURCE,
+                    occurredAt: input.completedAt,
+                },
             });
-            relationshipCreated = applied.status === 'ATTACHED';
-            entitlementIds.push(applied.inviterEntitlementId);
+            relationshipCreated = applied.created;
+            inviterEntitlementIds.push(applied.inviterEntitlementId);
         }
 
         this.logger.debug({
             event: 'referral_registration_onboarding_persisted',
             registrationCompletionId: input.registrationCompletionId,
-            entitlementCount: entitlementIds.length,
+            entitlementCount: inviterEntitlementIds.length,
         });
-        return { promoCode: provisioned.promoCode, relationshipCreated, entitlementIds };
+        return { promoCode: provisioned.promoCode, relationshipCreated, inviterEntitlementIds };
     }
 
     async deliverAfterCommit(entitlementIds: readonly ReferralEntitlementId[]): Promise<void> {

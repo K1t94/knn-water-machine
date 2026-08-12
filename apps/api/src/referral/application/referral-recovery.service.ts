@@ -12,6 +12,7 @@ import {
     type ReferralEntitlement,
 } from './ports/referral.repository';
 import { isPermanentWalletFailure } from './referral-bonus-delivery.service';
+import { ReferralFeatureStateService } from './referral-feature-state.service';
 
 import type { ReferralEntitlementId } from '../domain/referral-types';
 
@@ -45,11 +46,14 @@ export class ReferralRecoveryService {
         private readonly repository: ReferralBonusDeliveryRepository,
         @Inject(REFERRAL_BONUS_DELIVERY)
         private readonly delivery: ReferralBonusDelivery,
+        @Inject(ReferralFeatureStateService)
+        private readonly featureState: ReferralFeatureStateService,
     ) {}
 
     async runOnce(options: ReferralRecoveryRunOptions = {}): Promise<ReferralRecoveryRunResult> {
         const now = new Date();
         const workerId = options.workerId ?? randomUUID();
+        if (!(await this.featureState.readAvailability()).enabled) return this.emptyResult(workerId);
         const claimed = await this.repository.claimEntitlements({
             workerId,
             now,
@@ -62,6 +66,7 @@ export class ReferralRecoveryService {
     async runEntitlements(entitlementIds: readonly ReferralEntitlementId[]): Promise<ReferralRecoveryRunResult> {
         const now = new Date();
         const workerId = randomUUID();
+        if (!(await this.featureState.readAvailability()).enabled) return this.emptyResult(workerId);
         const claimed = await this.repository.claimEntitlementsById({
             workerId,
             now,
@@ -76,9 +81,10 @@ export class ReferralRecoveryService {
         claimed: readonly ReferralEntitlement[],
         countRemaining: boolean,
     ): Promise<ReferralRecoveryRunResult> {
+        const inviterClaims = claimed.filter((entitlement) => entitlement.kind === 'INVITER');
         const result = {
             workerId,
-            claimed: claimed.length,
+            claimed: inviterClaims.length,
             delivered: 0,
             staleLease: 0,
             permanentFailure: 0,
@@ -86,7 +92,7 @@ export class ReferralRecoveryService {
             remainingDue: 0,
         };
 
-        for (const entitlement of claimed) {
+        for (const entitlement of inviterClaims) {
             const deliveryResult = await this.deliverClaim(workerId, entitlement);
             if (deliveryResult === 'DELIVERED') result.delivered += 1;
             if (deliveryResult === 'STALE_LEASE') result.staleLease += 1;
@@ -132,6 +138,16 @@ export class ReferralRecoveryService {
             return 'RETRY_SCHEDULED';
         } catch (error: unknown) {
             const walletError = error instanceof WalletError ? error : null;
+            if (walletError?.code === 'WALLET_FEATURE_DISABLED') {
+                await this.repository.recordDeliveryFailure({
+                    entitlementId: entitlement.id,
+                    leaseOwner: workerId,
+                    errorCode: 'FEATURE_DISABLED',
+                    nextAttemptAt: new Date(),
+                    permanent: false,
+                });
+                return 'RETRY_SCHEDULED';
+            }
             const permanent = walletError !== null && isPermanentWalletFailure(walletError.code);
             await this.repository.recordDeliveryFailure({
                 entitlementId: entitlement.id,
@@ -149,5 +165,17 @@ export class ReferralRecoveryService {
         const capped = Math.min(exponential, REFERRAL_RECOVERY_MAX_BACKOFF_MS);
         const jitter = randomInt(Math.floor(capped * 0.8), Math.floor(capped * 1.2) + 1);
         return new Date(Date.now() + Math.min(jitter, REFERRAL_RECOVERY_MAX_BACKOFF_MS));
+    }
+
+    private emptyResult(workerId: string): ReferralRecoveryRunResult {
+        return {
+            workerId,
+            claimed: 0,
+            delivered: 0,
+            staleLease: 0,
+            permanentFailure: 0,
+            retryScheduled: 0,
+            remainingDue: 0,
+        };
     }
 }

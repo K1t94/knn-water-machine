@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { Platform } from 'react-native';
 
+import { FeatureAvailabilityStore } from '../features/stores/feature-availability.store';
+
 import { RegistrationFlowService, type RegistrationCommands } from './services/registration-flow.service';
 import {
     DevelopmentWebRegistrationAuthorizationStorage,
@@ -15,6 +17,7 @@ import type { AuthApi, SessionCredentials } from '../api/auth-api';
 export interface RegistrationFlowContextValue {
     store: RegistrationStore;
     commands: RegistrationCommands;
+    availability: FeatureAvailabilityStore;
 }
 
 const RegistrationFlowContext = createContext<RegistrationFlowContextValue | undefined>(undefined);
@@ -33,10 +36,13 @@ export function RegistrationFlowProvider({
     const completedRef = useRef(onCompleted);
     completedRef.current = onCompleted;
     const scope = useMemo(() => {
-        if (root) return root.createRegistrationScope();
+        if (root) return { ...root.createRegistrationScope(), availability: root.featureAvailabilityStore };
         const store = new RegistrationStore();
+        const availability = new FeatureAvailabilityStore();
+        availability.finishRefresh(availability.beginRefresh(), true);
         return {
             store,
+            availability,
             commands: new RegistrationFlowService(store, api, createRegistrationAuthorizationStorage(), (session) =>
                 completedRef.current?.(session),
             ),

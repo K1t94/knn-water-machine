@@ -87,7 +87,6 @@ describe('RegistrationService transaction', () => {
         createInitialInTransaction: ReturnType<typeof vi.fn>;
     };
     let referral: {
-        prevalidatePendingPromo: ReturnType<typeof vi.fn>;
         completeOnboarding: ReturnType<typeof vi.fn>;
         deliverAfterCommit: ReturnType<typeof vi.fn>;
     };
@@ -147,11 +146,10 @@ describe('RegistrationService transaction', () => {
             }),
         };
         referral = {
-            prevalidatePendingPromo: vi.fn(async () => null),
             completeOnboarding: vi.fn(async () => ({
                 promoCode: '23456789ABCD',
                 relationshipCreated: false,
-                entitlementIds: [],
+                inviterEntitlementIds: [],
             })),
             deliverAfterCommit: vi.fn(async () => undefined),
         };

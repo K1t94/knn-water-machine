@@ -95,11 +95,10 @@ describe('pending promo scope', () => {
             sessions as unknown as SessionsService,
             crypto,
             {
-                prevalidatePendingPromo: vi.fn(async () => '23456789ABCD'),
                 completeOnboarding: vi.fn(async () => ({
                     promoCode: '23456789ABCD',
                     relationshipCreated: true,
-                    entitlementIds: [],
+                    inviterEntitlementIds: [],
                 })),
                 deliverAfterCommit: vi.fn(async () => undefined),
             } as never,

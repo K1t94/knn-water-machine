@@ -1,8 +1,8 @@
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 
-import { ApplyReferralCodeScreen } from '../referral/screens/ApplyReferralCodeScreen';
 import { ReferralScreen } from '../referral/screens/ReferralScreen';
 import { WalletScreen } from '../wallet/screens/WalletScreen';
 
@@ -13,7 +13,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 export type MainStackParams = {
     Wallet: undefined;
     Referral: undefined;
-    ApplyReferralCode: undefined;
 };
 
 interface MainNavigatorProps {
@@ -25,18 +24,14 @@ interface MainNavigatorProps {
 const Stack = createNativeStackNavigator<MainStackParams>();
 export const mainNavigationRef = createNavigationContainerRef<MainStackParams>();
 
-export function MainNavigator({ wallet, referral, onLogout }: MainNavigatorProps): React.JSX.Element {
+export const MainNavigator = observer(function MainNavigator({ wallet, referral, onLogout }: MainNavigatorProps): React.JSX.Element {
     const [navigationReady, setNavigationReady] = useState(false);
+    const referralVisible = referral.availability.referralUiVisible;
 
-    useEffect(
-        () =>
-            referral.linkCoordinator.bindSignedInNavigation(() => {
-                if (!mainNavigationRef.isReady()) return false;
-                mainNavigationRef.navigate('ApplyReferralCode');
-                return true;
-            }),
-        [navigationReady, referral.linkCoordinator],
-    );
+    useEffect(() => {
+        if (!navigationReady || referralVisible || !mainNavigationRef.isReady()) return;
+        if (mainNavigationRef.getCurrentRoute()?.name === 'Referral') mainNavigationRef.navigate('Wallet');
+    }, [navigationReady, referralVisible]);
 
     return (
         <NavigationContainer onReady={() => setNavigationReady(true)} ref={mainNavigationRef}>
@@ -46,32 +41,25 @@ export function MainNavigator({ wallet, referral, onLogout }: MainNavigatorProps
                         <WalletScreen
                             commands={wallet.flow}
                             onLogout={onLogout}
-                            onOpenReferral={() => mainNavigationRef.navigate('Referral')}
+                            {...(referralVisible
+                                ? { onOpenReferral: () => mainNavigationRef.navigate('Referral') }
+                                : {})}
                             store={wallet.store}
                         />
                     )}
                 </Stack.Screen>
-                <Stack.Screen name="Referral">
+                {referralVisible ? <Stack.Screen name="Referral">
                     {({ navigation }: NativeStackScreenProps<MainStackParams, 'Referral'>) => (
                         <ReferralScreen
+                            available={referralVisible}
                             commands={referral.flow}
                             nativeActions={referral.nativeActions}
-                            onApplyCode={() => navigation.navigate('ApplyReferralCode')}
                             onBack={() => navigation.goBack()}
                             store={referral.store}
                         />
                     )}
-                </Stack.Screen>
-                <Stack.Screen name="ApplyReferralCode">
-                    {({ navigation }: NativeStackScreenProps<MainStackParams, 'ApplyReferralCode'>) => (
-                        <ApplyReferralCodeScreen
-                            commands={referral.flow}
-                            onBack={() => navigation.goBack()}
-                            store={referral.store}
-                        />
-                    )}
-                </Stack.Screen>
+                </Stack.Screen> : null}
             </Stack.Navigator>
         </NavigationContainer>
     );
-}
+});

@@ -1,43 +1,14 @@
 {
   "components": {
     "schemas": {
-      "ApplyReferralCodeRequestDto": {
+      "AppConfigResponseDto": {
         "properties": {
-          "promoCode": {
-            "example": "3A7K9MN2QTVW",
-            "maxLength": 64,
-            "minLength": 1,
-            "type": "string"
+          "features": {
+            "$ref": "#/components/schemas/PublicFeatureAvailabilityDto"
           }
         },
         "required": [
-          "promoCode"
-        ],
-        "type": "object"
-      },
-      "ApplyReferralCodeResponseDto": {
-        "properties": {
-          "appliedAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "promoCode": {
-            "example": "3A7K9MN2QTVW",
-            "pattern": "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "ATTACHED",
-              "ALREADY_ATTACHED"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "status",
-          "promoCode",
-          "appliedAt"
+          "features"
         ],
         "type": "object"
       },
@@ -67,7 +38,6 @@
               "REFERRAL_CODE_UNAVAILABLE",
               "REFERRAL_SELF_NOT_ALLOWED",
               "REFERRAL_ALREADY_ATTACHED",
-              "REFERRAL_ELIGIBILITY_CLOSED",
               "REFERRAL_SERVICE_UNAVAILABLE",
               "DEPENDENCY_UNAVAILABLE",
               "SESSION_CREATION_FAILED",
@@ -199,12 +169,6 @@
       },
       "MyReferralResponseDto": {
         "properties": {
-          "attachedPromoCode": {
-            "example": "3A7K9MN2QTVW",
-            "nullable": true,
-            "pattern": "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$",
-            "type": "string"
-          },
           "creditedInvitationCount": {
             "minimum": 0,
             "type": "number"
@@ -217,14 +181,6 @@
           "currentInviterRewardMl": {
             "example": "5000",
             "pattern": "^(0|[1-9][0-9]*)$",
-            "type": "string"
-          },
-          "eligibility": {
-            "enum": [
-              "OPEN",
-              "ATTACHED",
-              "CLOSED"
-            ],
             "type": "string"
           },
           "promoCode": {
@@ -240,8 +196,6 @@
         "required": [
           "promoCode",
           "referralLink",
-          "eligibility",
-          "attachedPromoCode",
           "currentInviterRewardMl",
           "creditedInviterBonusMl",
           "creditedInvitationCount"
@@ -440,6 +394,17 @@
         ],
         "type": "object"
       },
+      "PublicFeatureAvailabilityDto": {
+        "properties": {
+          "referralProgramEnabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "referralProgramEnabled"
+        ],
+        "type": "object"
+      },
       "ReferralInvitationPageResponseDto": {
         "properties": {
           "hasMore": {
@@ -506,10 +471,9 @@
         "properties": {
           "code": {
             "enum": [
+              "FEATURE_DISABLED",
               "REFERRAL_CODE_UNAVAILABLE",
               "REFERRAL_SELF_NOT_ALLOWED",
-              "REFERRAL_ALREADY_ATTACHED",
-              "REFERRAL_ELIGIBILITY_CLOSED",
               "REFERRAL_SERVICE_UNAVAILABLE",
               "REFERRAL_CURSOR_INVALID"
             ],
@@ -795,6 +759,49 @@
         },
         "tags": [
           "Health"
+        ]
+      }
+    },
+    "/v1/app-config": {
+      "get": {
+        "operationId": "AppConfigController_getConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigResponseDto"
+                }
+              }
+            },
+            "description": "",
+            "headers": {
+              "Cache-Control": {
+                "description": "Sensitive credential response must not be cached",
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralPublicErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "Get privacy-safe runtime feature availability",
+        "tags": [
+          "app-config"
         ]
       }
     },
@@ -1503,104 +1510,6 @@
         "summary": "Get exact current mandatory legal documents",
         "tags": [
           "legal"
-        ]
-      }
-    },
-    "/v1/referrals/applications": {
-      "post": {
-        "operationId": "ReferralController_apply",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Request-Id",
-            "required": false,
-            "schema": {
-              "maxLength": 128,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApplyReferralCodeRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApplyReferralCodeResponseDto"
-                }
-              }
-            },
-            "description": "",
-            "headers": {
-              "Cache-Control": {
-                "description": "Sensitive credential response must not be cached",
-                "schema": {
-                  "enum": [
-                    "no-store"
-                  ],
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReferralPublicErrorResponseDto"
-                }
-              }
-            },
-            "description": ""
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthErrorResponseDto"
-                }
-              }
-            },
-            "description": "Stable product error without dependency details"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReferralPublicErrorResponseDto"
-                }
-              }
-            },
-            "description": ""
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReferralPublicErrorResponseDto"
-                }
-              }
-            },
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "AccessBearer": []
-          }
-        ],
-        "summary": "Attach a referral promo code to the current user",
-        "tags": [
-          "referrals"
         ]
       }
     },

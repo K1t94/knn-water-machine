@@ -77,6 +77,16 @@ describe('registration HTTP contract', () => {
 
     afterEach(() => app.close());
 
+    it('does not expose a post-registration referral application route', async () => {
+        const response = await request(httpServer(app))
+            .post('/v1/referrals/applications')
+            .send({ pendingPromoCode: 'PROMO-1' });
+
+        expect(response.status).toBe(404);
+        expect(registration.updatePendingPromo).not.toHaveBeenCalled();
+        expect(registration.complete).not.toHaveBeenCalled();
+    });
+
     it('updates only pending promo context under registration authorization', async () => {
         const response = await request(httpServer(app))
             .patch('/v1/auth/registration/context')

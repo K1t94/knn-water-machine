@@ -1,205 +1,178 @@
-# Data Model: Referral Program
+# Data Model: Referral Program Scope Revision
 
-## Representation Rules
+**Date**: 2026-08-12
+**Spec**: `specs/005-referral-program/spec.md`
 
-- Water amounts use PostgreSQL `bigint` and TypeScript `bigint`. Public JSON
-  represents millilitres as canonical non-negative decimal strings.
-- Promo codes are canonical uppercase ASCII and are never derived from a phone,
-  user ID, or database sequence.
-- Referral relationships and promo ownership are immutable. Delivery metadata
-  is mutable only through the referral repository.
-- All timestamps are timezone-aware PostgreSQL timestamps and ISO 8601 UTC in
-  public responses.
-- Database constraints are authoritative for uniqueness and concurrency.
+## Active Enums
 
-## Enums
+### ReferralFeatureKey
+
+- `REFERRAL_PROGRAM`: the singleton runtime switch.
 
 ### ReferralApplicationChannel
 
-- `REGISTRATION`: the code was confirmed during registration completion.
-- `POST_REGISTRATION`: an authenticated user explicitly applied the code.
-
-### ReferralEligibilityStatus
-
-- `OPEN`: a promo may still be attached.
-- `ATTACHED`: an immutable relationship exists.
-- `CLOSED`: a future successful-purchase event permanently closed eligibility.
-
-Only `OPEN -> ATTACHED` and `OPEN -> CLOSED` transitions are valid.
+- `REGISTRATION`: the only value new code may write.
+- `POST_REGISTRATION`: retained as legacy-only PostgreSQL data for existing relationships; no active command accepts it.
 
 ### ReferralBonusKind
 
-- `WELCOME`: the one welcome entitlement for a newly registered user.
-- `INVITER`: the one inviter entitlement for a confirmed relationship.
-
-The invitee receives no separate referral entitlement.
+- `INVITER`: the only value new code may write or revised recovery may claim.
+- `WELCOME`: retained as legacy-only audit data; no creation or revised recovery path uses it.
 
 ### ReferralBonusDeliveryStatus
 
-- `PENDING`: due or scheduled for a wallet delivery attempt.
-- `PROCESSING`: claimed by a worker with a bounded lease.
-- `DELIVERED`: wallet accepted the exact immutable command facts.
-- `PERMANENT_FAILURE`: immutable data conflicts with an existing wallet event or
-  is otherwise non-retryable; operator intervention is required.
+- `PENDING`, `PROCESSING`, `DELIVERED`, `PERMANENT_FAILURE`: unchanged lease/delivery lifecycle.
 
-Technical delivery states are never returned by the public API.
+## Entities
 
-## ReferralPromoCode
+### ReferralFeatureState
 
-| Field | Storage | Rules |
-| --- | --- | --- |
-| `userId` | UUID PK/FK | Exactly one code per user; `ON DELETE RESTRICT` |
-| `code` | `varchar(12)` | Canonical alphabet, globally unique |
-| `createdAt` | timestamptz | Set once |
+Authoritative singleton used by API, registration, recovery, wallet, and operators.
 
-SQL supplements Prisma with a code-format `CHECK` and a trigger rejecting
-`UPDATE` and `DELETE`. Ownership can therefore neither move nor change.
+| Field | Type | Rules |
+|---|---|---|
+| `key` | enum/string | Primary key; exactly `REFERRAL_PROGRAM` |
+| `enabled` | boolean | Seeded `true`; server authoritative |
+| `revision` | bigint | Starts at `1`; increments only when value changes |
+| `updatedAt` | timestamptz | Database timestamp of the accepted transition |
 
-## ReferralEligibility
+Invariants:
 
-| Field | Storage | Rules |
-| --- | --- | --- |
-| `userId` | UUID PK/FK | One state row per provisioned user |
-| `status` | enum | `OPEN`, `ATTACHED`, or `CLOSED` |
-| `closedByEventKey` | `varchar(200)` nullable | Globally unique when present |
-| `closedAt` | timestamptz nullable | Set with a successful close |
-| `createdAt` | timestamptz | Creation time |
-| `updatedAt` | timestamptz | Last valid transition |
+- One row exists after the expand migration.
+- Reads and updates use the same PostgreSQL primary/authoritative connection.
+- Idempotent PUT of the current value does not increment `revision`.
+- Referral write and wallet-credit boundaries obtain a shared lock on this row; toggle obtains an exclusive lock.
+- Credentials and caller-supplied actor metadata are never stored in this entity.
 
-Checks require both closure fields only for `CLOSED`. A transition trigger
-rejects reversal, deletion, owner changes, and all transitions except
-`OPEN -> ATTACHED` or `OPEN -> CLOSED`. `ATTACHED` is also backed by the unique
-relationship invitee key. A user can therefore have no inviter while being
-permanently ineligible.
+### ReferralPromoCode
 
-## ReferralRelationship
+| Field | Type | Rules |
+|---|---|---|
+| `userId` | UUID | Primary key and restricted FK to `User` |
+| `code` | varchar(12) | Unique canonical public code |
+| `createdAt` | timestamptz | Immutable creation time |
 
-| Field | Storage | Rules |
-| --- | --- | --- |
-| `id` | UUID PK | Safe public invitation identity |
-| `sequence` | identity `bigint` | Globally unique ordering cursor |
-| `inviterUserId` | UUID FK | Indexed owner of invitation history |
-| `inviteeUserId` | UUID FK/unique | At most one inviter per invitee |
-| `channel` | enum | Registration or post-registration |
-| `appliedAt` | timestamptz | Database-assigned insertion time persisted only by the transaction that successfully creates the relationship; never caller-supplied |
-| `createdAt` | timestamptz | Persistence time |
+Each registered user has at most one stable code. Provisioning creates missing codes without relationships, entitlements, or wallet effects. Existing codes survive disable/enable. A code is exposed only while enabled.
 
-Foreign keys use `ON DELETE RESTRICT`; a `CHECK` rejects self-referral. A trigger
-rejects every `UPDATE` and `DELETE`. The history index is
-`(inviterUserId, sequence DESC)`. The public invitee label is computed from the
-current phone as fixed text `**` plus at most its last two digits; the phone and
-both user IDs are never serialized.
+### ReferralRelationship
 
-`appliedAt` is assigned by the database default when the relationship row is
-inserted. Same-code replay reads that persisted value; application and HTTP
-commands cannot provide or replace it.
+| Field | Type | Rules |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `sequence` | bigint | Unique pagination tie-breaker |
+| `inviterUserId` | UUID | Restricted FK to owner of the accepted code |
+| `inviteeUserId` | UUID | Unique restricted FK; at most one inviter |
+| `channel` | enum | New value always `REGISTRATION`; legacy values retained |
+| `appliedAt` | timestamptz | Assigned on durable registration completion |
+| `createdAt` | timestamptz | Audit timestamp |
 
-## ReferralBonusEntitlement
+Relationships are immutable after insert. New insertion requires an enabled shared-lock scope and creation of its inviter entitlement in the same transaction. Self-referral is rejected without revealing owner details.
 
-| Field | Storage | Rules |
-| --- | --- | --- |
-| `id` | UUID PK | Stable delivery identity |
-| `kind` | enum | `WELCOME` or `INVITER` |
-| `beneficiaryUserId` | UUID FK | Wallet owner to credit |
-| `relationshipId` | UUID FK nullable/unique | Required only for `INVITER` |
-| `amountMl` | `bigint` | Immutable positive captured amount |
-| `walletBusinessEventKey` | `varchar(200)` unique | `referral_bonus:<id>` |
-| `walletOperationKind` | `varchar(64)` | Captured wallet command classifier |
-| `walletSource` | `varchar(64)` | `REFERRAL_PROGRAM` |
-| `occurredAt` | timestamptz | Captured wallet command time |
-| `status` | enum | Delivery state |
-| `walletLedgerEntryId` | UUID FK nullable/unique | Present after delivery |
-| `attemptCount` | integer | Non-negative claim count |
-| `nextAttemptAt` | timestamptz | Retry scheduling time |
-| `leaseOwner` | UUID nullable | Current worker identity |
-| `leaseExpiresAt` | timestamptz nullable | Bounded claim expiry |
-| `lastErrorCode` | `varchar(64)` nullable | Redacted diagnostic classifier |
-| `deliveredAt` | timestamptz nullable | Successful confirmation time |
-| `createdAt` | timestamptz | Obligation creation time |
-| `updatedAt` | timestamptz | Delivery metadata update time |
+### ReferralBonusEntitlement
 
-Raw SQL adds a partial unique index on `beneficiaryUserId` where
-`kind = 'WELCOME'`, guaranteeing one welcome entitlement per user. Unique
-`relationshipId` plus checks guarantee one inviter entitlement per relationship
-and prohibit a relationship on welcome entitlements. Additional checks enforce
-the signed `bigint` range, positive amount, delivery/ledger consistency, and
-lease-field consistency.
+| Field | Type | Rules |
+|---|---|---|
+| `id` | UUID | Primary key and stable retry identity |
+| `kind` | enum | New rows are `INVITER`; `WELCOME` is legacy-only |
+| `beneficiaryUserId` | UUID | Inviter for all new rows |
+| `relationshipId` | UUID/null | Unique and required for all new inviter rows |
+| `amountMl` | bigint | Positive whole ml copied at creation |
+| `walletBusinessEventKey` | varchar(200) | Unique stable wallet idempotency key |
+| `walletOperationKind` | varchar(64) | Trusted referral bonus operation |
+| `walletSource` | varchar(64) | Trusted referral source |
+| `occurredAt` | timestamptz | Relationship registration completion time |
+| `status` | delivery enum | Durable delivery lifecycle |
+| `walletLedgerEntryId` | UUID/null | Unique link after delivery |
+| `attemptCount` | integer | Monotonic claim count |
+| `nextAttemptAt` | timestamptz | Retry scheduling boundary |
+| `leaseOwner` | UUID/null | Current worker claim |
+| `leaseExpiresAt` | timestamptz/null | Stale claim recovery |
+| `lastErrorCode` | varchar(64)/null | Safe diagnostic code |
+| `deliveredAt` | timestamptz/null | Successful delivery timestamp |
+| `createdAt`, `updatedAt` | timestamptz | Audit timestamps |
 
-A trigger rejects deletion and changes to kind, beneficiary, relationship,
-amount, wallet key, operation kind, source, occurred time, and creation time.
-Only delivery/lease metadata may change. Foreign keys use `ON DELETE RESTRICT`.
+Invariants:
 
-Wallet command facts are:
+- Exactly one new inviter entitlement exists per relationship.
+- No entitlement is created for the invitee and no welcome entitlement is created.
+- Revised recovery claims only `INVITER` rows.
+- Wallet credit occurs only through the trusted flag-guarded wallet command.
+- A repeated wallet event produces the same ledger entry, never another credit.
+- Existing delivered and undelivered legacy `WELCOME` rows remain unchanged; revised recovery leaves undelivered legacy rows inert.
 
-| Entitlement | Operation kind | Source | Amount |
-| --- | --- | --- | --- |
-| Welcome | `REFERRAL_WELCOME_BONUS` | `REFERRAL_PROGRAM` | Captured welcome config |
-| Inviter | `REFERRAL_INVITER_BONUS` | `REFERRAL_PROGRAM` | Captured inviter config |
+### WalletLedgerEntry
 
-The stored `occurredAt` is reused on every retry because wallet idempotent replay
-compares all immutable command facts, not only the business key.
+Existing immutable accounting fact. Referral code may request only a trusted inviter credit; it cannot mutate balances directly. `businessEventKey` uniqueness provides exactly-once financial effect despite retries or crashes.
 
-## Transactional Invariants
+### Registration Pending Promo Context
 
-### Registration completion
+Existing short-lived registration state, not a referral attachment.
 
-Inside the existing serializable registration transaction:
+| Field | Type | Rules |
+|---|---|---|
+| `pendingPromoCode` | string/null | Canonicalized, replaceable/removable before completion |
 
-1. Provision the user's promo and eligibility rows if absent.
-2. For a genuinely new user, create the unique welcome entitlement.
-3. If a validated pending code exists, lock eligibility, re-resolve the code,
-   create the relationship and inviter entitlement, and transition to
-   `ATTACHED`.
-4. Commit user, legal, session, referral state, and durable obligations
-   together. Wallet delivery occurs only after commit.
+It is considered only after OTP, mandatory legal acceptance, and successful registration completion. Disabled or unavailable authoritative state causes it to be discarded with no deferred or retroactive effect. It is absent from completed-user referral models.
 
-An existing user completing registration receives provisioning but no
-retroactive welcome entitlement.
+### ReferralInvitation Projection
 
-### Post-registration application
+Read model derived only from `DELIVERED` `INVITER` entitlements joined to relationships.
 
-The repository locks the invitee eligibility row `FOR UPDATE`. `OPEN` may create
-one relationship and inviter entitlement in one transaction. `ATTACHED` returns
-idempotent success only for the same canonical inviter code; a different code
-is a conflict. `CLOSED` is a conflict. Unique/check constraints arbitrate races.
+- Stable public invitation id.
+- Masked invitee label revealing at most the final two phone digits.
+- `appliedAt`, `CREDITED`, and exact credited `amountMl`.
+- Ordered by `(relationship.sequence DESC, relationship.id DESC)` with an opaque cursor.
+- No eligibility, attached-code, wallet event, internal user id, lease, or feature revision fields.
 
-### Eligibility closure
+## Removed Active Entity
 
-The trusted future purchase boundary locks eligibility and transitions only
-`OPEN -> CLOSED`, recording its stable successful-purchase event key. Repeating
-that key is idempotent. Competing apply and close operations are decided by the
-order in which their transactions acquire the row lock and successfully commit.
+### ReferralEligibility
 
-### Bonus delivery
+No eligibility exists after registration. Application code, purchase-close commands, response fields, and provisioning writes are removed first. The table is retained only during rolling deployment and then dropped by a non-cascading contract migration. It has no historical accounting authority.
 
-Relationship or registration transactions create durable obligations, never
-wallet rows. After commit, inline delivery and leased recovery both call the
-existing wallet application command. The global wallet business-key uniqueness
-provides exactly one wallet effect under at-least-once delivery.
+## State Transitions
 
-## Deterministic Pagination
+### Registration Completion
 
-Invitation history is ordered by `sequence DESC`, then queried with
-`sequence < beforeSequence` for the authenticated inviter. The API fetches
-`limit + 1`, returns at most `limit`, and emits a cursor only when another page
-exists. The opaque base64url cursor payload is:
+1. Registration has verified phone and accepted mandatory legal documents.
+2. Serializable completion transaction locks/reads `ReferralFeatureState`.
+3. Provision the user's stable promo code idempotently.
+4. If disabled or state cannot be authoritatively read, create no referral effect and consume pending context.
+5. If enabled with no pending code, create no relationship or entitlement.
+6. If enabled with a valid non-self code, insert one immutable relationship and one `INVITER` entitlement atomically.
+7. Commit registration; delivery occurs after commit and remains recoverable.
 
-```json
-{ "v": 1, "beforeSequence": "123" }
-```
+### Feature Toggle
 
-Only relationships whose inviter entitlement is `DELIVERED` appear in the
-public total and history. Newer concurrent insertions do not shift an existing
-cursor traversal.
+1. Guard authenticates the operator and DTO validation accepts exactly one boolean.
+2. Transaction obtains exclusive lock on `ReferralFeatureState`.
+3. Same-value request returns unchanged row; changed value increments revision and timestamp.
+4. The response is returned only after earlier guarded referral side effects finish.
+5. All instances observe the row on their next operation/config refresh.
 
-## Migration And Provisioning
+### Recovery
 
-The reviewed migration creates enums, tables, constraints, partial indexes,
-ordinary indexes, and immutability/transition triggers. It creates no promo
-rows, relationships, entitlements, eligibility locks, or wallet entries.
+`PENDING -> PROCESSING -> DELIVERED` on successful trusted wallet credit. Temporary failure or observed disable releases/schedules the same obligation for retry. Permanent wallet-domain failure uses `PERMANENT_FAILURE`. Expired leases may be reclaimed. Disabled state yields no new claims or credits; re-enable resumes the same identities.
 
-After compatible application deployment, `referral:provision` scans existing
-users with UUID keyset pagination, supports `--dry-run`, creates only promo and
-`OPEN` eligibility rows, retries collisions, and commits bounded batches. It is
-idempotent and emits aggregate counts. Authenticated reads lazily repair a
-missing pair. Neither path creates a welcome entitlement for pre-feature users.
+## Migration Plan and Historical Impact
+
+### Expand Migration
+
+- Create `ReferralFeatureState` with key/boolean/revision/timestamp constraints.
+- Insert `REFERRAL_PROGRAM = true` idempotently.
+- Do not update or delete existing referral or wallet rows.
+
+### Application Cutover
+
+- Stop reading/writing `ReferralEligibility`.
+- Stop creating or claiming `WELCOME` entitlements.
+- Stop writing `POST_REGISTRATION` relationships.
+- Preserve existing enum values, channel column, entitlements, relationships, and ledger entries.
+
+### Contract Migration
+
+- After all old API instances are drained, drop `ReferralEligibility` and its indexes/constraints without cascade.
+- Keep legacy enum values and immutable historical facts.
+- Verify row counts and wallet ledger checksums before and after; eligibility row removal must not change any user, relationship, entitlement, wallet, or promo-code count.
+
+Rollback never reverses wallet entries or deletes historical facts. The additive feature-state table may remain if application code rolls back; disable the feature before rolling back to binaries that could recreate removed behavior.

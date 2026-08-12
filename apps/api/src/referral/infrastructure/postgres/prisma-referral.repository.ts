@@ -9,14 +9,10 @@ import { ReferralError, referralCodeUnavailable } from '../../domain/referral-er
 import { decodeReferralCursor, encodeReferralCursor } from './referral-cursor';
 
 import type {
-    ApplyReferralCodeInput,
-    ApplyReferralCodeResult,
+    AttachRegistrationReferralInput,
+    AttachRegistrationReferralResult,
     ClaimReferralEntitlementsByIdInput,
     ClaimReferralEntitlementsInput,
-    CloseReferralEligibilityInput,
-    CloseReferralEligibilityResult,
-    CreateWelcomeEntitlementInput,
-    CreateWelcomeEntitlementResult,
     ListReferralProvisioningCandidatesInput,
     ProvisionReferralUserInput,
     ProvisionReferralUserResult,
@@ -82,7 +78,7 @@ export class PrismaReferralRepository implements ReferralRepository {
         return this.transaction((transaction) => this.provisionUserInternal(transaction, input));
     }
 
-    async applyCode(input: ApplyReferralCodeInput): Promise<ApplyReferralCodeResult> {
+    async attachDuringRegistration(input: AttachRegistrationReferralInput): Promise<AttachRegistrationReferralResult> {
         const initialOwner = await this.findActivePromoOwner(input.promoCode);
         if (initialOwner === null) throw referralCodeUnavailable();
         if (initialOwner.userId === input.inviteeUserId) {
@@ -90,25 +86,14 @@ export class PrismaReferralRepository implements ReferralRepository {
         }
 
         return this.transaction(async (transaction) => {
-            await this.provisionUserInternal(transaction, {
-                userId: input.inviteeUserId,
-                createdAt: input.inviterEntitlement.occurredAt,
-            });
-            await this.lockEligibility(transaction, input.inviteeUserId);
-
+            await transaction.$queryRaw`
+                SELECT "id"
+                FROM "User"
+                WHERE "id" = ${input.inviteeUserId}::uuid
+                FOR UPDATE
+            `;
             const existing = await this.findRelationshipForInvitee(transaction, input.inviteeUserId);
             if (existing !== null) return this.resolveExistingRelationship(existing, input.promoCode);
-
-            const eligibility = await transaction.referralEligibility.findUniqueOrThrow({
-                where: { userId: input.inviteeUserId },
-                select: { status: true, closedByEventKey: true },
-            });
-            if (eligibility.status === 'CLOSED') {
-                throw new ReferralError('REFERRAL_ELIGIBILITY_CLOSED', 'Referral application eligibility is closed');
-            }
-            if (eligibility.status === 'ATTACHED') {
-                throw new ReferralError('REFERRAL_ALREADY_ATTACHED', 'A referral code is already attached');
-            }
 
             const owner = await this.findActivePromoOwner(input.promoCode, transaction);
             if (owner === null) throw referralCodeUnavailable();
@@ -120,7 +105,7 @@ export class PrismaReferralRepository implements ReferralRepository {
                 data: {
                     inviterUserId: owner.userId,
                     inviteeUserId: input.inviteeUserId,
-                    channel: input.channel,
+                    channel: 'REGISTRATION',
                 },
                 select: { id: true, appliedAt: true },
             });
@@ -141,13 +126,8 @@ export class PrismaReferralRepository implements ReferralRepository {
                 select: { id: true },
             });
 
-            await transaction.referralEligibility.update({
-                where: { userId: input.inviteeUserId },
-                data: { status: 'ATTACHED' },
-            });
-
             return {
-                status: 'ATTACHED',
+                created: true,
                 canonicalPromoCode: input.promoCode,
                 appliedAt: relationship.appliedAt,
                 relationshipId: relationship.id as ReferralRelationshipId,
@@ -164,105 +144,12 @@ export class PrismaReferralRepository implements ReferralRepository {
         }
     }
 
-    async closeEligibility(input: CloseReferralEligibilityInput): Promise<CloseReferralEligibilityResult> {
-        return this.transaction(async (transaction) => {
-            await this.provisionUserInternal(transaction, {
-                userId: input.userId,
-                createdAt: input.succeededAt,
-            });
-            await this.lockEligibility(transaction, input.userId);
-
-            const eligibility = await transaction.referralEligibility.findUniqueOrThrow({
-                where: { userId: input.userId },
-                select: { status: true, closedAt: true, closedByEventKey: true },
-            });
-
-            if (eligibility.status === 'ATTACHED') return { status: 'ALREADY_ATTACHED' };
-            if (eligibility.status === 'CLOSED') {
-                if (eligibility.closedByEventKey === input.purchaseBusinessEventKey) {
-                    return { status: 'ALREADY_CLOSED', closedAt: eligibility.closedAt ?? input.succeededAt };
-                }
-                throw new ReferralError('REFERRAL_EVENT_CONFLICT', 'Referral eligibility was closed by another event');
-            }
-
-            const updated = await transaction.referralEligibility.update({
-                where: { userId: input.userId },
-                data: {
-                    status: 'CLOSED',
-                    closedByEventKey: input.purchaseBusinessEventKey,
-                    closedAt: input.succeededAt,
-                },
-                select: { closedAt: true },
-            });
-
-            return { status: 'CLOSED', closedAt: updated.closedAt ?? input.succeededAt };
-        });
-    }
-
-    async createWelcomeEntitlement(input: CreateWelcomeEntitlementInput): Promise<CreateWelcomeEntitlementResult> {
-        return this.transaction(async (transaction) => {
-            await this.provisionUserInternal(transaction, {
-                userId: input.beneficiaryUserId,
-                createdAt: input.occurredAt,
-            });
-
-            const existing = await transaction.referralBonusEntitlement.findFirst({
-                where: {
-                    beneficiaryUserId: input.beneficiaryUserId,
-                    kind: 'WELCOME',
-                },
-                select: { id: true },
-            });
-            if (existing !== null) {
-                return { entitlementId: existing.id as ReferralEntitlementId, created: false };
-            }
-
-            const inserted = await transaction.$queryRaw<readonly { id: string }[]>`
-                INSERT INTO "ReferralBonusEntitlement" (
-                    "id",
-                    "kind",
-                    "beneficiaryUserId",
-                    "amountMl",
-                    "walletBusinessEventKey",
-                    "walletOperationKind",
-                    "walletSource",
-                    "occurredAt",
-                    "nextAttemptAt",
-                    "updatedAt"
-                )
-                VALUES (
-                    ${input.id}::uuid,
-                    'WELCOME'::"ReferralBonusKind",
-                    ${input.beneficiaryUserId}::uuid,
-                    ${input.amountMl},
-                    ${input.walletBusinessEventKey},
-                    ${input.walletOperationKind},
-                    ${input.walletSource},
-                    ${input.occurredAt},
-                    ${input.occurredAt},
-                    CURRENT_TIMESTAMP
-                )
-                ON CONFLICT DO NOTHING
-                RETURNING "id"
-            `;
-            const created = inserted.at(0);
-            if (created !== undefined) return { entitlementId: created.id as ReferralEntitlementId, created: true };
-
-            const winner = await transaction.referralBonusEntitlement.findFirstOrThrow({
-                where: {
-                    beneficiaryUserId: input.beneficiaryUserId,
-                    kind: 'WELCOME',
-                },
-                select: { id: true },
-            });
-            return { entitlementId: winner.id as ReferralEntitlementId, created: false };
-        });
-    }
-
     async claimEntitlements(input: ClaimReferralEntitlementsInput): Promise<readonly ReferralEntitlement[]> {
         const limit = Math.max(1, Math.min(input.limit, 100));
         const leaseExpiresAt = new Date(input.now.getTime() + input.leaseDurationMs);
-        const rows = await this.prisma.$queryRaw<ReferralEntitlementRow[]>`
+        return this.transaction(async (transaction) => {
+            if (!(await this.isReferralEnabledWithSharedLock(transaction))) return [];
+            const rows = await transaction.$queryRaw<ReferralEntitlementRow[]>`
             UPDATE "ReferralBonusEntitlement" entitlement
             SET
                 "status" = 'PROCESSING'::"ReferralBonusDeliveryStatus",
@@ -273,13 +160,14 @@ export class PrismaReferralRepository implements ReferralRepository {
             FROM (
                 SELECT "id"
                 FROM "ReferralBonusEntitlement"
-                WHERE (
-                    "status" = 'PENDING'::"ReferralBonusDeliveryStatus"
-                    AND "nextAttemptAt" <= ${input.now}
-                ) OR (
-                    "status" = 'PROCESSING'::"ReferralBonusDeliveryStatus"
-                    AND "leaseExpiresAt" <= ${input.now}
-                )
+                WHERE "kind" = 'INVITER'::"ReferralBonusKind"
+                  AND ((
+                        "status" = 'PENDING'::"ReferralBonusDeliveryStatus"
+                        AND "nextAttemptAt" <= ${input.now}
+                    ) OR (
+                        "status" = 'PROCESSING'::"ReferralBonusDeliveryStatus"
+                        AND "leaseExpiresAt" <= ${input.now}
+                    ))
                 ORDER BY "nextAttemptAt" ASC, "createdAt" ASC, "id" ASC
                 LIMIT ${limit}
                 FOR UPDATE SKIP LOCKED
@@ -298,16 +186,18 @@ export class PrismaReferralRepository implements ReferralRepository {
                 entitlement."walletLedgerEntryId",
                 entitlement."attemptCount",
                 entitlement."leaseOwner"::text AS "leaseOwner"
-        `;
-
-        return rows.map(mapReferralEntitlementRow);
+            `;
+            return rows.map(mapReferralEntitlementRow);
+        });
     }
 
     async claimEntitlementsById(input: ClaimReferralEntitlementsByIdInput): Promise<readonly ReferralEntitlement[]> {
         if (input.entitlementIds.length === 0) return [];
         const leaseExpiresAt = new Date(input.now.getTime() + input.leaseDurationMs);
         const ids = Prisma.join(input.entitlementIds.map((id) => Prisma.sql`${id}::uuid`));
-        const rows = await this.prisma.$queryRaw<ReferralEntitlementRow[]>(Prisma.sql`
+        return this.transaction(async (transaction) => {
+            if (!(await this.isReferralEnabledWithSharedLock(transaction))) return [];
+            const rows = await transaction.$queryRaw<ReferralEntitlementRow[]>(Prisma.sql`
             UPDATE "ReferralBonusEntitlement" entitlement
             SET
                 "status" = 'PROCESSING'::"ReferralBonusDeliveryStatus",
@@ -319,6 +209,7 @@ export class PrismaReferralRepository implements ReferralRepository {
                 SELECT "id"
                 FROM "ReferralBonusEntitlement"
                 WHERE "id" IN (${ids})
+                  AND "kind" = 'INVITER'::"ReferralBonusKind"
                   AND "status" = 'PENDING'::"ReferralBonusDeliveryStatus"
                   AND "nextAttemptAt" <= ${input.now}
                 ORDER BY "createdAt" ASC, "id" ASC
@@ -338,8 +229,9 @@ export class PrismaReferralRepository implements ReferralRepository {
                 entitlement."walletLedgerEntryId",
                 entitlement."attemptCount",
                 entitlement."leaseOwner"::text AS "leaseOwner"
-        `);
-        return rows.map(mapReferralEntitlementRow);
+            `);
+            return rows.map(mapReferralEntitlementRow);
+        });
     }
 
     async getEntitlement(entitlementId: ReferralEntitlementId): Promise<ReferralEntitlement | null> {
@@ -424,6 +316,7 @@ export class PrismaReferralRepository implements ReferralRepository {
     async countDueEntitlements(now: Date): Promise<number> {
         return this.prisma.referralBonusEntitlement.count({
             where: {
+                kind: 'INVITER',
                 OR: [
                     {
                         status: 'PENDING',
@@ -438,30 +331,33 @@ export class PrismaReferralRepository implements ReferralRepository {
         });
     }
 
+    private async isReferralEnabledWithSharedLock(transaction: Prisma.TransactionClient): Promise<boolean> {
+        const rows = await transaction.$queryRaw<Array<{ enabled: boolean }>>(Prisma.sql`
+            SELECT "enabled"
+            FROM "ReferralFeatureState"
+            WHERE "key" = 'REFERRAL_PROGRAM'::"ReferralFeatureKey"
+            FOR SHARE
+        `);
+        return rows.at(0)?.enabled === true;
+    }
+
     async getMyReferral(userId: string): Promise<ReferralSummary> {
         await this.provisionUser({
             userId,
             createdAt: new Date(),
         });
 
-        const [promo, eligibility, relationship, delivered] = await Promise.all([
+        const [promo, delivered] = await Promise.all([
             this.prisma.referralPromoCode.findUniqueOrThrow({
                 where: { userId },
                 select: { code: true },
-            }),
-            this.prisma.referralEligibility.findUniqueOrThrow({
-                where: { userId },
-                select: { status: true },
-            }),
-            this.prisma.referralRelationship.findUnique({
-                where: { inviteeUserId: userId },
-                select: { inviter: { select: { referralPromoCode: { select: { code: true } } } } },
             }),
             this.prisma.referralBonusEntitlement.aggregate({
                 where: {
                     beneficiaryUserId: userId,
                     kind: 'INVITER',
                     status: 'DELIVERED',
+                    relationship: { is: { inviterUserId: userId } },
                 },
                 _count: { id: true },
                 _sum: { amountMl: true },
@@ -471,8 +367,6 @@ export class PrismaReferralRepository implements ReferralRepository {
         return {
             promoCode: promo.code as PromoCode,
             referralLink: `kaynann://register?promo=${promo.code}`,
-            applicationStatus: eligibility.status,
-            attachedPromoCode: (relationship?.inviter.referralPromoCode?.code as PromoCode | undefined) ?? null,
             deliveredInvitationCount: delivered._count.id,
             deliveredInviterBonusMl: delivered._sum.amountMl ?? 0n,
         };
@@ -526,11 +420,6 @@ export class PrismaReferralRepository implements ReferralRepository {
             where: { userId: input.userId },
             select: { code: true },
         });
-        await transaction.$executeRaw`
-            INSERT INTO "ReferralEligibility" ("userId", "updatedAt")
-            VALUES (${input.userId}::uuid, CURRENT_TIMESTAMP)
-            ON CONFLICT ("userId") DO NOTHING
-        `;
         if (existing !== null) return { promoCode: existing.code as PromoCode, created: false, collisionCount: 0 };
 
         let collisionCount = 0;
@@ -556,15 +445,6 @@ export class PrismaReferralRepository implements ReferralRepository {
         }
 
         throw new ReferralError('REFERRAL_SERVICE_UNAVAILABLE', 'Failed to provision a unique referral code');
-    }
-
-    private async lockEligibility(transaction: PrismaHandle, userId: string): Promise<void> {
-        await transaction.$queryRaw`
-            SELECT "userId"
-            FROM "ReferralEligibility"
-            WHERE "userId" = ${userId}::uuid
-            FOR UPDATE
-        `;
     }
 
     private async findActivePromoOwner(
@@ -598,7 +478,7 @@ export class PrismaReferralRepository implements ReferralRepository {
     private resolveExistingRelationship(
         relationship: NonNullable<Awaited<ReturnType<PrismaReferralRepository['findRelationshipForInvitee']>>>,
         requestedCode: PromoCode,
-    ): ApplyReferralCodeResult {
+    ): AttachRegistrationReferralResult {
         const existingCode = relationship.inviter.referralPromoCode?.code;
         if (existingCode !== requestedCode) {
             throw new ReferralError('REFERRAL_ALREADY_ATTACHED', 'A different referral code is already attached');
@@ -611,7 +491,7 @@ export class PrismaReferralRepository implements ReferralRepository {
         }
 
         return {
-            status: 'ALREADY_ATTACHED',
+            created: false,
             canonicalPromoCode: requestedCode,
             appliedAt: relationship.appliedAt,
             relationshipId: relationship.id as ReferralRelationshipId,

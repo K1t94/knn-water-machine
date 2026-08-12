@@ -105,6 +105,20 @@ describe('WalletCommandService', () => {
         );
     });
 
+    it('passes the trusted referral feature guard to the repository', async () => {
+        vi.mocked(repository.credit).mockResolvedValue({
+            entryId: ENTRY_ID,
+            balanceAfterMl: parseWalletBalance(1_000n),
+            idempotentReplay: false,
+        });
+
+        await service.credit(credit({ featureGuard: 'REFERRAL_PROGRAM_ENABLED' }));
+
+        expect(repository.credit).toHaveBeenCalledWith(
+            expect.objectContaining({ featureGuard: 'REFERRAL_PROGRAM_ENABLED' }),
+        );
+    });
+
     it.each(['REFERRAL_WELCOME_BONUS', 'REFERRAL_INVITER_BONUS'] as const)(
         'accepts referral credit classifier %s without a wallet-domain allowlist',
         async (operationKind) => {
@@ -172,6 +186,7 @@ describe('WalletCommandService', () => {
         ['invalid kind', () => credit({ operationKind: 'lowercase' })],
         ['invalid source', () => credit({ source: 'web-client' })],
         ['invalid timestamp', () => credit({ occurredAt: new Date(Number.NaN) })],
+        ['invalid feature guard', () => credit({ featureGuard: 'LOCAL_FLAG' as 'REFERRAL_PROGRAM_ENABLED' })],
         ['compensation kind without origin', () => credit({ operationKind: 'COMPENSATION' })],
         ['non-object command', () => null as unknown as CreditWalletCommand],
     ])('rejects malformed credit (%s) before repository access', (_label, makeCommand) => {

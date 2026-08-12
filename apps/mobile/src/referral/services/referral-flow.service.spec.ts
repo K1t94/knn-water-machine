@@ -3,127 +3,65 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ReferralApiError } from '../../api/referral-api';
 import { SessionStore } from '../../auth/stores/session.store';
+import { FeatureAvailabilityStore } from '../../features/stores/feature-availability.store';
 import { ReferralStore } from '../stores/referral.store';
 
 import { ReferralFlowService } from './referral-flow.service';
 
-import type { AuthenticatedReferralRequestScope } from './referral-flow.service';
-import type { SessionCredentials } from '../../api/auth-api';
-import type { MyReferral, ReferralApi, ReferralInvitationPage, ReferralInvitationQuery } from '../../api/referral-api';
+import type { ReferralApi, MyReferral, ReferralInvitationPage } from '../../api/referral-api';
 import type { Observable } from 'rxjs';
 
 describe('ReferralFlowService', () => {
-    it('loads on login/restoration and supports retry, refresh, apply, and serialized pagination', () => {
+    it('loads only for an authenticated session while enabled', () => {
         const session = new SessionStore();
+        const availability = enabledAvailability();
         const store = new ReferralStore();
         const api = createApi();
-        const access = new TestAccessScope(() => session.accessToken ?? '');
-        const flow = new ReferralFlowService(store, api, session, access);
-
+        const flow = new ReferralFlowService(store, api, session, access(session), availability);
+        expect(api.getMe).not.toHaveBeenCalled();
         session.authenticate(credentials('token'));
         expect(store.myReferral?.promoCode).toBe('23456789ABCD');
-        expect(access.calls).toBe(1);
-
-        flow.applyPromoCode('abcdefghjkmn');
-        expect(api.apply).toHaveBeenCalledWith('token', 'ABCDEFGHJKMN');
-        expect(store.applyState).toBe('success');
-
-        flow.loadNextPage();
-        flow.loadNextPage();
-        expect(api.getInvitations).toHaveBeenCalledTimes(3);
-
-        vi.mocked(api.getMe).mockReturnValueOnce(throwError(() => new ReferralApiError('OFFLINE', true)));
-        flow.refresh();
-        expect(store.error).toEqual({ code: 'OFFLINE', retryable: true });
-        flow.retry();
-        expect(store.error).toBeUndefined();
+        availability.disableFromReferralResponse();
+        expect(store.myReferral).toBeUndefined();
+        expect('applyPromoCode' in flow).toBe(false);
         flow.dispose();
     });
 
-    it('cancels and clears on logout or replacement and blocks stale publication after dispose', () => {
+    it('publishes FEATURE_DISABLED globally and rejects stale data', () => {
         const session = new SessionStore();
+        session.authenticate(credentials('token'));
+        const availability = enabledAvailability();
         const store = new ReferralStore();
         const me = new Subject<MyReferral>();
         const invitations = new Subject<ReferralInvitationPage>();
         const api = createApi({ getMe: vi.fn(() => me), getInvitations: vi.fn(() => invitations) });
-        const flow = new ReferralFlowService(store, api, session, new TestAccessScope(() => session.accessToken ?? ''));
-
-        session.authenticate(credentials('old'));
-        expect(me.observed).toBe(true);
-        session.authenticate(credentials('replacement'));
-        expect(api.getMe).toHaveBeenCalledTimes(2);
-        session.markAnonymous();
-        expect(me.observed).toBe(false);
-        expect(store.viewState).toBe('initial');
-
-        me.next(summary());
+        const flow = new ReferralFlowService(store, api, session, access(session), availability);
+        me.error(new ReferralApiError('FEATURE_DISABLED', false));
+        expect(availability.state).toBe('disabled');
+        expect(store.myReferral).toBeUndefined();
         invitations.next(page());
         expect(store.myReferral).toBeUndefined();
         flow.dispose();
-        session.authenticate(credentials('after-dispose'));
-        expect(api.getMe).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps ordinary retryable errors local and reloads on retry', () => {
+        const session = new SessionStore();
+        session.authenticate(credentials('token'));
+        const api = createApi({ getMe: vi.fn().mockReturnValueOnce(throwError(() => new ReferralApiError('OFFLINE', true))).mockReturnValue(of(summary())) });
+        const store = new ReferralStore();
+        const flow = new ReferralFlowService(store, api, session, access(session), enabledAvailability());
+        expect(store.error).toEqual({ code: 'OFFLINE', retryable: true });
+        flow.retry();
+        expect(store.myReferral).toEqual(summary());
+        flow.dispose();
     });
 });
 
-class TestAccessScope implements AuthenticatedReferralRequestScope {
-    calls = 0;
-
-    constructor(private readonly resolveToken: () => string) {}
-
-    withAccess<T>(request: (accessToken: string) => Observable<T>): Observable<T> {
-        this.calls += 1;
-        return request(this.resolveToken());
-    }
-}
-
 function createApi(overrides: Partial<ReferralApi> = {}): ReferralApi {
-    return {
-        getMe: vi.fn(() => of(summary())),
-        apply: vi.fn((_token: string, promoCode: string) =>
-            of({ status: 'ATTACHED' as const, promoCode, appliedAt: '2026-08-10T10:00:00.000Z' }),
-        ),
-        getInvitations: vi.fn((_token: string, query?: ReferralInvitationQuery) =>
-            of(page(query?.cursor ? [] : [invitation('one')], query?.cursor ? 'last' : 'next', true)),
-        ),
-        ...overrides,
-    };
+    return { getMe: vi.fn(() => of(summary())), getInvitations: vi.fn(() => of(page())), ...overrides };
 }
-
-function credentials(accessToken: string): SessionCredentials {
-    return {
-        accessToken,
-        accessExpiresAt: '2099-01-01T00:15:00.000Z',
-        refreshToken: 'refresh',
-        refreshExpiresAt: '2099-03-01T00:00:00.000Z',
-    };
-}
-
-function summary(): MyReferral {
-    return {
-        promoCode: '23456789ABCD',
-        referralLink: 'kaynann://register?promo=23456789ABCD',
-        eligibility: 'OPEN',
-        attachedPromoCode: null,
-        currentInviterRewardMl: '5000',
-        creditedInviterBonusMl: '5000',
-        creditedInvitationCount: 1,
-    };
-}
-
-function page(
-    items: ReferralInvitationPage['items'] = [],
-    nextCursor: string | null = null,
-    hasMore = false,
-): ReferralInvitationPage {
-    return { items, nextCursor, hasMore };
-}
-
-function invitation(id: string): ReferralInvitationPage['items'][number] {
-    return {
-        id,
-        inviteeLabel: '**42',
-        appliedAt: '2026-08-10T09:00:00.000Z',
-        status: 'CREDITED',
-        creditedAmountMl: '5000',
-    };
-}
+function access(session: SessionStore) { return { withAccess<T>(request: (token: string) => Observable<T>) { return request(session.accessToken ?? ''); } }; }
+function enabledAvailability(): FeatureAvailabilityStore { const store = new FeatureAvailabilityStore(); store.finishRefresh(store.beginRefresh(), true); return store; }
+function credentials(accessToken: string) { return { accessToken, accessExpiresAt: '2099-01-01T00:15:00.000Z', refreshToken: 'refresh', refreshExpiresAt: '2099-03-01T00:00:00.000Z' }; }
+function summary(): MyReferral { return { promoCode: '23456789ABCD', referralLink: 'kaynann://register?promo=23456789ABCD', currentInviterRewardMl: '5000', creditedInviterBonusMl: '5000', creditedInvitationCount: 1 }; }
+function page(): ReferralInvitationPage { return { items: [], nextCursor: null, hasMore: false }; }

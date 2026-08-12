@@ -3,29 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { canonicalizePromoCode } from '../domain/promo-code';
 import { parseReferralMillilitres } from '../domain/referral-types';
 
-import {
-    toApplyReferralCodeResponse,
-    toMyReferralResponse,
-    toReferralInvitationPageResponse,
-} from './referral-response.mapper';
+import { toMyReferralResponse, toReferralInvitationPageResponse } from './referral-response.mapper';
 
 describe('referral response mapper', () => {
-    it('serializes application and summary values without internal fields', () => {
-        const appliedAt = new Date('2026-08-10T10:00:00.000Z');
-
-        expect(
-            toApplyReferralCodeResponse({
-                status: 'ATTACHED',
-                promoCode: canonicalizePromoCode('3A7K9MN2QTVW'),
-                appliedAt,
-            }),
-        ).toEqual({ status: 'ATTACHED', promoCode: '3A7K9MN2QTVW', appliedAt: appliedAt.toISOString() });
+    it('serializes summary values without removed application state', () => {
         expect(
             toMyReferralResponse({
                 promoCode: canonicalizePromoCode('4A7K9MN2QTVW'),
                 referralLink: 'kaynann://register?promo=4A7K9MN2QTVW',
-                applicationStatus: 'OPEN',
-                attachedPromoCode: null,
                 currentInviterRewardMl: 5_000n,
                 deliveredInvitationCount: 2,
                 deliveredInviterBonusMl: 10_000n,
@@ -33,8 +18,6 @@ describe('referral response mapper', () => {
         ).toEqual({
             promoCode: '4A7K9MN2QTVW',
             referralLink: 'kaynann://register?promo=4A7K9MN2QTVW',
-            eligibility: 'OPEN',
-            attachedPromoCode: null,
             currentInviterRewardMl: '5000',
             creditedInviterBonusMl: '10000',
             creditedInvitationCount: 2,

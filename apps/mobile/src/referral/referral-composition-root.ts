@@ -6,6 +6,7 @@ import { ReferralStore } from './stores/referral.store';
 
 import type { ReferralApi } from '../api/referral-api';
 import type { SessionStore } from '../auth/stores/session.store';
+import type { FeatureAvailabilityStore } from '../features/stores/feature-availability.store';
 import type { ReferralLinkSource } from '../navigation/referral-link-coordinator';
 import type { ReferralClipboardPort, ReferralSharePort } from './native/referral-native-actions';
 import type { AuthenticatedReferralRequestScope } from './services/referral-flow.service';
@@ -18,6 +19,7 @@ export interface ReferralCompositionDependencies {
 
 export class ReferralCompositionRoot {
     readonly store = new ReferralStore();
+    readonly availability: FeatureAvailabilityStore;
     readonly flow: ReferralFlowService;
     readonly nativeActions: ReferralNativeActions;
     readonly linkCoordinator: ReferralLinkCoordinator;
@@ -26,11 +28,13 @@ export class ReferralCompositionRoot {
         api: ReferralApi,
         sessionStore: SessionStore,
         access: AuthenticatedReferralRequestScope,
+        availability: FeatureAvailabilityStore,
         dependencies: ReferralCompositionDependencies = {},
     ) {
-        this.flow = new ReferralFlowService(this.store, api, sessionStore, access);
+        this.availability = availability;
+        this.flow = new ReferralFlowService(this.store, api, sessionStore, access, availability);
         this.nativeActions = new ReferralNativeActions(dependencies.clipboard, dependencies.share);
-        this.linkCoordinator = new ReferralLinkCoordinator(sessionStore, this.store, dependencies.linkSource);
+        this.linkCoordinator = new ReferralLinkCoordinator(sessionStore, availability, dependencies.linkSource);
     }
 
     dispose(): void {

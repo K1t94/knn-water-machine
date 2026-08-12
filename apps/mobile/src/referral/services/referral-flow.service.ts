@@ -5,7 +5,8 @@ import { ReferralApiError } from '../../api/referral-api';
 
 import type { MyReferral, ReferralApi, ReferralInvitationPage } from '../../api/referral-api';
 import type { SessionStore } from '../../auth/stores/session.store';
-import type { ReferralApplyError, ReferralStore } from '../stores/referral.store';
+import type { FeatureAvailabilityStore } from '../../features/stores/feature-availability.store';
+import type { ReferralStore } from '../stores/referral.store';
 import type { Observable, Subscription } from 'rxjs';
 
 export interface AuthenticatedReferralRequestScope {
@@ -16,61 +17,56 @@ export interface ReferralCommands {
     retry(): void;
     refresh(): void;
     loadNextPage(): void;
-    applyPromoCode(value?: string): void;
 }
 
 export class ReferralFlowService implements ReferralCommands {
-    private sessionEpoch = 0;
+    private epoch = 0;
     private loadSubscription: Subscription | undefined;
     private pageSubscription: Subscription | undefined;
-    private applySubscription: Subscription | undefined;
-    private readonly disposeSessionReaction: () => void;
+    private readonly disposeReaction: () => void;
     private disposed = false;
 
     constructor(
         private readonly store: ReferralStore,
         private readonly api: ReferralApi,
-        sessionStore: SessionStore,
+        private readonly sessionStore: SessionStore,
         private readonly access: AuthenticatedReferralRequestScope,
+        private readonly availability: FeatureAvailabilityStore,
     ) {
-        this.disposeSessionReaction = reaction(
-            () => `${sessionStore.state}:${sessionStore.accessToken ?? ''}`,
+        this.disposeReaction = reaction(
+            () => `${sessionStore.state}:${sessionStore.accessToken ?? ''}:${availability.state}`,
             () => {
-                this.sessionEpoch += 1;
+                this.epoch += 1;
                 this.cancelRequests();
                 this.store.clear();
-                if (sessionStore.state === 'authenticated' && sessionStore.accessToken) {
-                    this.loadFirstPage('initial');
-                }
+                if (this.canLoad()) this.loadFirstPage('initial');
             },
             { fireImmediately: true },
         );
     }
 
     retry(): void {
-        if (this.disposed) return;
-        this.loadFirstPage(this.store.myReferral ? 'refresh' : 'initial');
+        if (!this.disposed && this.canLoad()) this.loadFirstPage(this.store.myReferral ? 'refresh' : 'initial');
     }
 
     refresh(): void {
-        if (this.disposed) return;
-        this.loadFirstPage(this.store.myReferral ? 'refresh' : 'initial');
+        this.retry();
     }
 
     loadNextPage(): void {
-        if (this.disposed || this.pageSubscription) return;
+        if (this.disposed || this.pageSubscription || !this.canLoad()) return;
         const cursor = this.store.nextCursor;
         const token = this.store.beginNextPage();
         if (!token || !cursor) return;
-        const epoch = this.sessionEpoch;
+        const epoch = this.epoch;
         const subscription = this.access
             .withAccess((accessToken) => this.api.getInvitations(accessToken, { cursor, limit: 20 }))
             .subscribe({
                 next: (page) => {
-                    if (epoch === this.sessionEpoch) this.store.finishNextPage(token, page);
+                    if (epoch === this.epoch && this.canLoad()) this.store.finishNextPage(token, page);
                 },
                 error: (error: unknown) => {
-                    if (epoch === this.sessionEpoch) this.store.failNextPage(token, toPresentationError(error));
+                    if (epoch === this.epoch) this.handleError(error, (mapped) => this.store.failNextPage(token, mapped));
                     this.pageSubscription = undefined;
                 },
                 complete: () => {
@@ -80,46 +76,27 @@ export class ReferralFlowService implements ReferralCommands {
         this.pageSubscription = subscription.closed ? undefined : subscription;
     }
 
-    applyPromoCode(value?: string): void {
-        if (this.disposed || this.applySubscription) return;
-        if (value !== undefined) this.store.setApplyCode(value);
-        const promoCode = this.store.applyCode;
-        const token = this.store.beginApply();
-        if (!token || !promoCode) return;
-        const epoch = this.sessionEpoch;
-        const subscription = this.access
-            .withAccess((accessToken) => this.api.apply(accessToken, promoCode))
-            .subscribe({
-                next: (result) => {
-                    if (epoch === this.sessionEpoch) this.store.finishApply(token, result);
-                },
-                error: (error: unknown) => {
-                    if (epoch === this.sessionEpoch) this.store.failApply(token, toApplyError(error));
-                    this.applySubscription = undefined;
-                },
-                complete: () => {
-                    this.applySubscription = undefined;
-                },
-            });
-        this.applySubscription = subscription.closed ? undefined : subscription;
-    }
-
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
-        this.sessionEpoch += 1;
-        this.disposeSessionReaction();
+        this.epoch += 1;
+        this.disposeReaction();
         this.cancelRequests();
         this.store.clear();
     }
 
+    private canLoad(): boolean {
+        return Boolean(
+            this.availability.referralProgramEnabled &&
+                this.sessionStore.state === 'authenticated' &&
+                this.sessionStore.accessToken,
+        );
+    }
+
     private loadFirstPage(mode: 'initial' | 'refresh'): void {
-        this.loadSubscription?.unsubscribe();
-        this.loadSubscription = undefined;
-        this.pageSubscription?.unsubscribe();
-        this.pageSubscription = undefined;
+        this.cancelRequests();
         const token = mode === 'initial' ? this.store.beginInitialLoad() : this.store.beginRefresh();
-        const epoch = this.sessionEpoch;
+        const epoch = this.epoch;
         const subscription = this.access
             .withAccess((accessToken) =>
                 forkJoin({
@@ -129,13 +106,14 @@ export class ReferralFlowService implements ReferralCommands {
             )
             .subscribe({
                 next: ({ referral, page }) => {
-                    if (epoch === this.sessionEpoch) this.finishFirstPage(mode, token, referral, page);
+                    if (epoch === this.epoch && this.canLoad()) this.finishFirstPage(mode, token, referral, page);
                 },
                 error: (error: unknown) => {
-                    if (epoch === this.sessionEpoch) {
-                        const mapped = toPresentationError(error);
-                        if (mode === 'initial') this.store.failInitialLoad(token, mapped);
-                        else this.store.failRefresh(token, mapped);
+                    if (epoch === this.epoch) {
+                        this.handleError(error, (mapped) => {
+                            if (mode === 'initial') this.store.failInitialLoad(token, mapped);
+                            else this.store.failRefresh(token, mapped);
+                        });
                     }
                     this.loadSubscription = undefined;
                 },
@@ -144,6 +122,14 @@ export class ReferralFlowService implements ReferralCommands {
                 },
             });
         this.loadSubscription = subscription.closed ? undefined : subscription;
+    }
+
+    private handleError(error: unknown, publish: (error: { code: string; retryable: boolean }) => void): void {
+        if (error instanceof ReferralApiError && error.code === 'FEATURE_DISABLED') {
+            this.availability.disableFromReferralResponse();
+            return;
+        }
+        publish(toPresentationError(error));
     }
 
     private finishFirstPage(
@@ -161,22 +147,10 @@ export class ReferralFlowService implements ReferralCommands {
         this.loadSubscription = undefined;
         this.pageSubscription?.unsubscribe();
         this.pageSubscription = undefined;
-        this.applySubscription?.unsubscribe();
-        this.applySubscription = undefined;
     }
 }
 
 function toPresentationError(error: unknown): { code: string; retryable: boolean } {
     if (error instanceof ReferralApiError) return { code: error.code, retryable: error.retryable };
     return { code: 'REFERRAL_SERVICE_UNAVAILABLE', retryable: true };
-}
-
-function toApplyError(error: unknown): ReferralApplyError {
-    const mapped = toPresentationError(error);
-    if (mapped.code === 'REFERRAL_CODE_UNAVAILABLE') return { ...mapped, kind: 'validation' };
-    if (mapped.code === 'REFERRAL_ELIGIBILITY_CLOSED') return { ...mapped, kind: 'closed' };
-    if (mapped.code === 'REFERRAL_SELF_NOT_ALLOWED' || mapped.code === 'REFERRAL_ALREADY_ATTACHED') {
-        return { ...mapped, kind: 'conflict' };
-    }
-    return { ...mapped, kind: 'service' };
 }

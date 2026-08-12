@@ -49,6 +49,7 @@ integration('referral registration onboarding', () => {
     const suspendedOwnerPhone = phone(9);
     const changedConfigPhone = phone(10);
     const sc006Phone = phone(11);
+    const disabledPhone = phone(12);
     let fixture: ReferralPostgresSchema;
     let app: INestApplication;
     let httpServer: SupertestApp;
@@ -78,6 +79,7 @@ integration('referral registration onboarding', () => {
             suspendedOwnerPhone,
             changedConfigPhone,
             sc006Phone,
+            disabledPhone,
         ]);
         legalDocumentIds = await seedLegalDocuments(fixture);
         const inviter = await fixture.prisma.user.create({
@@ -133,7 +135,7 @@ integration('referral registration onboarding', () => {
         await expect(fixture.prisma.referralBonusEntitlement.count()).resolves.toBe(0);
     });
 
-    it('registers without a promo and grants exactly one welcome bonus', async () => {
+    it('registers without a promo and grants no referral or welcome bonus', async () => {
         const context = await verifiedRegistrationContext(noPromoPhone, null);
         const response = await completeRegistration(context, 'referral-registration-no-promo');
         expect(response.status, response.text).toBe(200);
@@ -143,37 +145,34 @@ integration('referral registration onboarding', () => {
         const entitlements = await fixture.prisma.referralBonusEntitlement.findMany({
             where: { beneficiaryUserId: user.id },
         });
-        expect(entitlements).toMatchObject([{ kind: 'WELCOME', amountMl: 10_000n, status: 'DELIVERED' }]);
-        await expect(fixture.prisma.walletLedgerEntry.count({ where: { walletUserId: user.id } })).resolves.toBe(1);
+        expect(entitlements).toEqual([]);
+        await expect(fixture.prisma.walletLedgerEntry.count({ where: { walletUserId: user.id } })).resolves.toBe(0);
     });
 
-    it('applies changed bonus configuration only to newly created entitlements', async () => {
-        const existingUser = await fixture.prisma.user.findUniqueOrThrow({ where: { phoneE164: noPromoPhone } });
-        const existingEntitlement = await fixture.prisma.referralBonusEntitlement.findFirstOrThrow({
-            where: { beneficiaryUserId: existingUser.id, kind: 'WELCOME' },
+    it('completes registration but creates no referral effects while the feature is disabled', async () => {
+        await fixture.prisma.referralFeatureState.update({
+            where: { key: 'REFERRAL_PROGRAM' },
+            data: { enabled: false, revision: { increment: 1 } },
         });
-        const previousAmount = process.env.REFERRAL_WELCOME_BONUS_ML;
-
         try {
-            process.env.REFERRAL_WELCOME_BONUS_ML = '12000';
-            const context = await verifiedRegistrationContext(changedConfigPhone, null);
-            const response = await completeRegistration(context, 'referral-registration-changed-config');
+            const context = await verifiedRegistrationContext(disabledPhone, promoCode);
+            const response = await completeRegistration(context, 'referral-registration-disabled');
             expect(response.status, response.text).toBe(200);
-        } finally {
-            process.env.REFERRAL_WELCOME_BONUS_ML = previousAmount;
-        }
 
-        const newUser = await fixture.prisma.user.findUniqueOrThrow({ where: { phoneE164: changedConfigPhone } });
-        await expect(
-            fixture.prisma.referralBonusEntitlement.findFirstOrThrow({
-                where: { beneficiaryUserId: newUser.id, kind: 'WELCOME' },
-            }),
-        ).resolves.toMatchObject({ amountMl: 12_000n, status: 'DELIVERED' });
-        await expect(
-            fixture.prisma.referralBonusEntitlement.findUniqueOrThrow({
-                where: { id: existingEntitlement.id },
-            }),
-        ).resolves.toMatchObject({ amountMl: 10_000n, status: 'DELIVERED' });
+            const user = await fixture.prisma.user.findUniqueOrThrow({ where: { phoneE164: disabledPhone } });
+            await expect(
+                fixture.prisma.referralRelationship.count({ where: { inviteeUserId: user.id } }),
+            ).resolves.toBe(0);
+            await expect(
+                fixture.prisma.referralBonusEntitlement.count({ where: { beneficiaryUserId: user.id } }),
+            ).resolves.toBe(0);
+            await expect(fixture.prisma.walletLedgerEntry.count({ where: { walletUserId: user.id } })).resolves.toBe(0);
+        } finally {
+            await fixture.prisma.referralFeatureState.update({
+                where: { key: 'REFERRAL_PROGRAM' },
+                data: { enabled: true, revision: { increment: 1 } },
+            });
+        }
     });
 
     it('uses one safe unavailable response for unknown and suspended-owner promo codes', async () => {
@@ -205,17 +204,6 @@ integration('referral registration onboarding', () => {
             .set('x-registration-authorization', context.authorization)
             .send({ pendingPromoCode: '23456789ABCD' });
         expect(unavailable.status).toBe(204);
-        const rejected = await request(httpServer)
-            .post('/v1/auth/registration/complete')
-            .set('x-registration-authorization', context.authorization)
-            .set('idempotency-key', 'referral-registration-invalid-code')
-            .send({
-                setVersion: context.setVersion,
-                acceptedDocumentIds: legalDocumentIds,
-                installationId: context.installationId,
-            });
-        expect(rejected.status).toBe(400);
-        expect((rejected.body as { error: { code: string } }).error.code).toBe('REFERRAL_CODE_UNAVAILABLE');
         await request(httpServer)
             .patch('/v1/auth/registration/context')
             .set('x-registration-authorization', context.authorization)
@@ -257,26 +245,33 @@ integration('referral registration onboarding', () => {
             where: { beneficiaryUserId: { in: [invitee.id, inviter.id] } },
             orderBy: { kind: 'asc' },
         });
-        expect(entitlements).toHaveLength(2);
-        expect(entitlements.find(({ kind }) => kind === 'WELCOME')).toMatchObject({
-            beneficiaryUserId: invitee.id,
-            amountMl: 10_000n,
-        });
-        expect(entitlements.find(({ kind }) => kind === 'INVITER')).toMatchObject({
+        expect(entitlements).toHaveLength(1);
+        expect(entitlements[0]).toMatchObject({
             beneficiaryUserId: inviter.id,
+            kind: 'INVITER',
             amountMl: 5_000n,
         });
-        expect(entitlements.filter(({ beneficiaryUserId }) => beneficiaryUserId === invitee.id)).toHaveLength(1);
+        expect(entitlements.filter(({ beneficiaryUserId }) => beneficiaryUserId === invitee.id)).toHaveLength(0);
         await expect(
             fixture.prisma.walletLedgerEntry.count({
                 where: { walletUserId: { in: [invitee.id, inviter.id] } },
             }),
-        ).resolves.toBe(2);
+        ).resolves.toBe(1);
+
+        const previousAmount = process.env.REFERRAL_INVITER_BONUS_ML;
+        process.env.REFERRAL_INVITER_BONUS_ML = '12000';
+        try {
+            await expect(
+                fixture.prisma.referralBonusEntitlement.findUniqueOrThrow({ where: { id: entitlements[0].id } }),
+            ).resolves.toMatchObject({ amountMl: 5_000n });
+        } finally {
+            process.env.REFERRAL_INVITER_BONUS_ML = previousAmount;
+        }
     }, 120_000);
 
     it('rolls back user, legal, session, and referral facts when onboarding fails', async () => {
         const before = await durableCounts();
-        const context = await verifiedRegistrationContext(rollbackPhone, null);
+        const context = await verifiedRegistrationContext(rollbackPhone, promoCode);
         await fixture.prisma.$executeRaw(Prisma.sql`
             CREATE FUNCTION referral_test_reject_entitlement() RETURNS trigger AS $$
             BEGIN
@@ -306,27 +301,34 @@ integration('referral registration onboarding', () => {
 
     it('recovers a committed entitlement after inline delivery is interrupted', async () => {
         const delivery = vi.spyOn(registrationIntegration, 'deliverAfterCommit').mockResolvedValueOnce(undefined);
-        const context = await verifiedRegistrationContext(recoveryPhone, null);
+        const context = await verifiedRegistrationContext(recoveryPhone, promoCode);
         const response = await completeRegistration(context, 'referral-registration-recovery');
         expect(response.status, response.text).toBe(200);
         delivery.mockRestore();
 
         const user = await fixture.prisma.user.findUniqueOrThrow({ where: { phoneE164: recoveryPhone } });
+        const relationship = await fixture.prisma.referralRelationship.findUniqueOrThrow({
+            where: { inviteeUserId: user.id },
+        });
         const entitlement = await fixture.prisma.referralBonusEntitlement.findFirstOrThrow({
-            where: { beneficiaryUserId: user.id, kind: 'WELCOME' },
+            where: { relationshipId: relationship.id, beneficiaryUserId: inviterUserId, kind: 'INVITER' },
         });
         expect(entitlement.status).toBe('PENDING');
-        await expect(fixture.prisma.walletLedgerEntry.count({ where: { walletUserId: user.id } })).resolves.toBe(0);
+        await expect(
+            fixture.prisma.walletLedgerEntry.count({ where: { businessEventKey: entitlement.walletBusinessEventKey } }),
+        ).resolves.toBe(0);
 
         const recovered = await recovery.runOnce({ workerId: randomUUID() });
         expect(recovered.delivered).toBeGreaterThanOrEqual(1);
-        await expect(fixture.prisma.walletLedgerEntry.count({ where: { walletUserId: user.id } })).resolves.toBe(1);
+        await expect(
+            fixture.prisma.walletLedgerEntry.count({ where: { businessEventKey: entitlement.walletBusinessEventKey } }),
+        ).resolves.toBe(1);
         await expect(
             fixture.prisma.referralBonusEntitlement.findUniqueOrThrow({ where: { id: entitlement.id } }),
         ).resolves.toMatchObject({ status: 'DELIVERED' });
     });
 
-    it('SC-006 registration exposes scheduler-backed welcome and inviter effects within 5 seconds', async () => {
+    it('SC-006 registration exposes one scheduler-backed inviter effect within 5 seconds', async () => {
         const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
         const schedulerApp = module.createNestApplication();
         schedulerApp.useGlobalPipes(
@@ -384,17 +386,14 @@ integration('referral registration onboarding', () => {
                     authenticatedGet(schedulerServer, '/v1/referrals/invitations', inviterCredentials.accessToken),
                     authenticatedGet(schedulerServer, '/v1/wallet/balance', inviterCredentials.accessToken),
                 ]);
-                const inviteeBody = inviteeMe.body as unknown as MyReferralResponseDto;
                 const inviteeWalletBody = inviteeWallet.body as unknown as WalletBalanceResponseDto;
                 const inviterBody = inviterMe.body as unknown as MyReferralResponseDto;
                 const invitationBody = invitations.body as unknown as ReferralInvitationPageResponseDto;
                 const inviterWalletBody = inviterWallet.body as unknown as WalletBalanceResponseDto;
                 return (
                     inviteeMe.status === 200 &&
-                    inviteeBody.eligibility === 'ATTACHED' &&
-                    inviteeBody.attachedPromoCode === promoCode &&
                     inviteeWallet.status === 200 &&
-                    inviteeWalletBody.balanceMl === '10000' &&
+                    inviteeWalletBody.balanceMl === '0' &&
                     inviterMe.status === 200 &&
                     inviterBody.creditedInvitationCount >= 1 &&
                     BigInt(inviterBody.creditedInviterBonusMl) >= 5_000n &&
@@ -412,30 +411,20 @@ integration('referral registration onboarding', () => {
             });
             const entitlements = await fixture.prisma.referralBonusEntitlement.findMany({
                 where: {
-                    OR: [
-                        { beneficiaryUserId: invitee.id, kind: 'WELCOME' },
-                        { relationshipId: relationship.id, kind: 'INVITER' },
-                    ],
+                    relationshipId: relationship.id,
+                    kind: 'INVITER',
                 },
                 orderBy: { kind: 'asc' },
             });
-            expect(entitlements).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        beneficiaryUserId: invitee.id,
-                        kind: 'WELCOME',
-                        amountMl: 10_000n,
-                        status: 'DELIVERED',
-                    }),
-                    expect.objectContaining({
-                        beneficiaryUserId: inviterUserId,
-                        kind: 'INVITER',
-                        amountMl: 5_000n,
-                        status: 'DELIVERED',
-                    }),
-                ]),
-            );
-            expect(entitlements).toHaveLength(2);
+            expect(entitlements).toEqual([
+                expect.objectContaining({
+                    beneficiaryUserId: inviterUserId,
+                    kind: 'INVITER',
+                    amountMl: 5_000n,
+                    status: 'DELIVERED',
+                }),
+            ]);
+            expect(entitlements).toHaveLength(1);
             for (const entitlement of entitlements) {
                 await expect(
                     fixture.prisma.walletLedgerEntry.count({
@@ -495,17 +484,15 @@ integration('referral registration onboarding', () => {
     }
 
     async function durableCounts() {
-        const [users, legalAcceptances, sessions, promoCodes, eligibilities, relationships, entitlements] =
-            await Promise.all([
-                fixture.prisma.user.count(),
-                fixture.prisma.legalAcceptance.count(),
-                fixture.prisma.userSession.count(),
-                fixture.prisma.referralPromoCode.count(),
-                fixture.prisma.referralEligibility.count(),
-                fixture.prisma.referralRelationship.count(),
-                fixture.prisma.referralBonusEntitlement.count(),
-            ]);
-        return { users, legalAcceptances, sessions, promoCodes, eligibilities, relationships, entitlements };
+        const [users, legalAcceptances, sessions, promoCodes, relationships, entitlements] = await Promise.all([
+            fixture.prisma.user.count(),
+            fixture.prisma.legalAcceptance.count(),
+            fixture.prisma.userSession.count(),
+            fixture.prisma.referralPromoCode.count(),
+            fixture.prisma.referralRelationship.count(),
+            fixture.prisma.referralBonusEntitlement.count(),
+        ]);
+        return { users, legalAcceptances, sessions, promoCodes, relationships, entitlements };
     }
 });
 
@@ -570,7 +557,6 @@ function configureEnvironment(databaseUrl: string, phones: readonly string[]): v
         FINGERPRINT_HMAC_KEY: secret,
         REGISTRATION_RESULT_ENCRYPTION_KEY: secret,
         JWT_ACCESS_SIGNING_KEY: secret,
-        REFERRAL_WELCOME_BONUS_ML: '10000',
         REFERRAL_INVITER_BONUS_ML: '5000',
     });
 }

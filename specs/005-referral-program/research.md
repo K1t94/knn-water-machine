@@ -1,387 +1,132 @@
-# Research: Referral Program
-
-## Decision 1: Preserve The Existing Registration Boundary
-
-**Decision**: Extend the existing `RegistrationService` serializable Prisma
-transaction through a narrow referral onboarding application port that accepts
-`Prisma.TransactionClient`. The port provisions the new user's promo code and
-eligibility, records the welcome entitlement for a genuinely new user, and,
-when a valid pending promo exists, records the relationship and inviter
-entitlement. The public registration request, response, session credentials,
-OTP, and legal contracts remain unchanged.
-
-Before `beginCompletion`, the service canonicalizes and resolves pending promo
-text while the Redis authorization is still `ACTIVE`; malformed, unavailable,
-or self-owned codes therefore fail without freezing the user's ability to edit
-or remove pending context. The same facts are revalidated and locked inside the
-database transaction. New-user identity comes from the stable completion data;
-existing-user status comes from the inspected authorization and is verified
-against the transaction result.
-
-**Rationale**: Today registration inspects Redis authorization, validates legal
-documents, creates stable completion/session identities, and commits user,
-legal acceptance, and initial session in one `SERIALIZABLE` PostgreSQL
-transaction. Redis is marked `COMPLETED` only after that commit and then removes
-phone/promo context. Retrying the same completion key recovers prepared
-credentials. Referral records must therefore be committed alongside the
-existing database effects and before Redis completion clears the promo.
-
-**Alternatives considered**:
-
-- Process pending promo after registration returns. Rejected because a crash
-  could lose the only pending context and FR-030 would be false.
-- Put referral logic directly in the auth repository. Rejected because it
-  mixes business domains and makes auth responsible for wallet policy.
-- Change registration HTTP payloads or credentials. Rejected by FR-033.
-
-## Decision 2: Use Durable Bonus Entitlements, Not A Cross-Module Transaction
-
-**Decision**: Persist each `ReferralBonusEntitlement` in the same PostgreSQL
-transaction as the registration or referral relationship that creates the
-obligation. Deliver it afterward through the exported `WalletCommandService`
-using a stable key `referral_bonus:<entitlement-uuid>`. Perform one bounded
-inline delivery attempt after commit and recover all unfinished work with a
-PostgreSQL-backed scheduled worker.
-
-**Rationale**: The current `PrismaWalletRepository` always opens its own
-`READ COMMITTED` transaction and does not accept an external transaction
-client. A single referral/wallet transaction would require widening the wallet
-port and coupling registration to wallet persistence and lock ordering. A
-durable entitlement is an outbox-style obligation: transaction commit cannot
-lose it, while the wallet's globally unique business-event key makes repeated
-delivery produce one ledger effect. If the process crashes after wallet credit
-but before marking delivery complete, retry returns the original wallet entry.
-The normal inline attempt supports the five-second visibility objective; a
-temporary wallet failure does not undo an already valid registration.
-
-This is at-least-once delivery with an exactly-once wallet effect. It is not a
-distributed transaction and is not described as exactly-once delivery.
-
-**Alternatives considered**:
-
-- Add `creditInTransaction(transaction, command)` and include wallet mutation in
-  the registration/referral transaction. This could provide one database
-  commit, but it leaks Prisma transaction context across the wallet application
-  boundary, expands auth lock ordering, and makes temporary wallet failure block
-  session issuance. Rejected for this feature.
-- Publish to Redis or add a queue framework. Rejected because PostgreSQL already
-  stores the durable obligation and the project already has Nest scheduling;
-  a new broker/dependency adds no required guarantee.
-
-## Decision 3: Claim Recovery Work With PostgreSQL Leases
-
-**Decision**: A scheduled worker claims due entitlements in short transactions
-with `FOR UPDATE SKIP LOCKED`, changes them to `PROCESSING`, assigns a random
-worker/lease identity, and commits before calling wallet. Defaults are a batch
-of 25, a 30-second lease, a one-second schedule, and exponential retry delays
-bounded between one second and five minutes with jitter. Only one run per
-process may overlap. Expired leases are reclaimable after restart.
-
-After wallet success or idempotent replay, a conditional update matching the
-lease stores the ledger entry identity and `DELIVERED`. Transient dependency
-failures return the entitlement to `PENDING` with the next attempt time.
-Conflicting wallet facts or corrupt immutable entitlement data become
-`PERMANENT_FAILURE`, emit a high-severity metric/log, and are never silently
-presented to a user. Transient work has no finite terminal retry count.
-
-An internal `referral:recover` one-shot command runs the same claim/delivery
-service for due or expired work; it does not edit balances or expose HTTP. This
-is the supported manual operational retry.
-
-**Rationale**: Leasing permits multiple API instances and restarts without a
-second queue. A claim transaction must not remain open during wallet work.
-Conditional lease ownership plus wallet idempotency makes stale workers safe.
-
-**Alternatives considered**:
-
-- Keep a transaction open while crediting wallet. Rejected because it holds row
-  locks during a second transaction and creates avoidable deadlock/latency risk.
-- Mark every failure permanent after a maximum count. Rejected because it can
-  lose an obligatory credit during a long outage.
-
-## Decision 4: Use A Separate Immutable Promo-Code Record
-
-**Decision**: Store promo ownership in `ReferralPromoCode`, keyed by `userId`,
-instead of adding a required random field directly to `User`. Prevent update and
-delete with a migration trigger. New registrations create their code in the
-registration transaction.
+# Research: Referral Program Scope Revision
 
-**Rationale**: A separate record avoids an unsafe non-null random backfill on
-the hot user table, keeps referral persistence within its module, and supports
-collision retries without changing user identity. One row per user and a unique
-canonical code prove stable ownership.
+**Date**: 2026-08-12
+**Spec**: `specs/005-referral-program/spec.md`
 
-**Alternatives considered**:
+All technical questions are resolved. The specification is the requirements source; the repository is the source for current implementation state.
 
-- Required `User.promoCode`. Rejected because adding a non-null unique random
-  column to existing users complicates migration locking and rollback.
-- Derive the code from phone/user ID. Rejected because it is predictable and
-  leaks private identity.
+## R1. Existing-State Migration, Not Greenfield Work
 
-## Decision 5: Generate 12-Character CSPRNG Codes
-
-**Decision**: Canonical codes are exactly 12 uppercase ASCII characters from
-`23456789ABCDEFGHJKMNPQRSTVWXYZ`. Input is trimmed and uppercased, then must
-match that exact alphabet and length. The alphabet excludes visually ambiguous
-`0`, `1`, `I`, `L`, `O`, and `U`. Generate with Node `crypto.randomBytes` and
-rejection sampling, not modulo-biased `Math.random`. Retry a database unique
-collision up to eight times before returning a retryable dependency error.
-
-**Rationale**: Thirty symbols over twelve positions provide about 59 bits of
-space without embedding phone/user data. The database unique index remains the
-collision authority. Exact parsing limits brute-force input surface; ordinary
-API throttling remains an HTTP security concern rather than a property of the
-code itself.
-
-Invalid format and syntactically valid unknown code share
-`REFERRAL_CODE_UNAVAILABLE`, preventing account-owner enumeration. Self,
-attachment conflict, and closed eligibility remain distinct actionable errors.
+**Decision**: Refactor the implemented referral module in place. Preserve promo-code, relationship, entitlement, wallet-boundary, pagination, masking, lease, and retry foundations; remove welcome creation and post-registration application/eligibility paths.
 
-**Alternatives considered**:
+**Rationale**: The code already has durable uniqueness and idempotent wallet event keys. Replacing it would increase migration and duplicate-credit risk.
 
-- Short numeric or user-derived codes. Rejected as predictable.
-- UUIDs. Rejected as unnecessarily difficult to type/share.
-- Case-sensitive codes or separator tolerance. Rejected because they create
-  confusing identities and more ambiguous canonicalization.
-
-## Decision 6: Keep The Existing Custom Deep Link
-
-**Decision**: The API returns the canonical link
-`kaynann://register?promo=<CANONICAL_CODE>`. A single app-lifecycle listener
-parses both the initial URL and later `Linking` events. Signed-out links populate
-editable pending registration context. Signed-in links prefill the explicit
-apply screen. Neither path applies automatically, and each incoming URL is
-consumed once across the auth-to-main transition.
-
-**Rationale**: This preserves the feature-002 route and configured Expo scheme.
-There is no configured web domain, associated-domain file, or Android App Link,
-so a browser/install fallback cannot honestly be promised.
-
-**Alternatives considered**:
+**Alternatives considered**: A parallel v2 module was rejected because two active referral paths would be hard to gate and reconcile. Adding new behavior beside stale behavior was rejected because it would leave contradictory APIs and states.
 
-- Universal/App Links. Deferred until a public domain and association-file
-  deployment exist.
-- Add a second listener inside the authenticated navigator. Rejected because a
-  cold-start URL can be processed twice when auth state changes.
+## R2. Persistent Runtime Flag
 
-## Decision 7: Model Eligibility As OPEN, ATTACHED, Or CLOSED
+**Decision**: Add a dedicated singleton `ReferralFeatureState` row in PostgreSQL through Prisma. The row has fixed key `REFERRAL_PROGRAM`, `enabled`, monotonically increasing `revision`, and `updatedAt`. The migration inserts it as enabled and uses an upsert so existing deployments preserve current behavior.
 
-**Decision**: Give every provisioned user one `ReferralEligibility` row.
-`OPEN` permits application, `ATTACHED` means the user already has a relationship,
-and `CLOSED` records the stable future successful-purchase event key and time.
-Both apply and close commands lock this row `FOR UPDATE`; the transaction that
-obtains the lock and commits first determines the outcome.
-
-If apply wins, it creates the relationship/entitlement and changes `OPEN` to
-`ATTACHED`; the later purchase command returns `ALREADY_ATTACHED`. If purchase
-close wins, it changes `OPEN` to `CLOSED`; later apply returns
-`REFERRAL_ELIGIBILITY_CLOSED`. Repeating the same purchase identity is
-idempotent. Failed/cancelled/incomplete purchases never call this boundary.
-
-**Rationale**: A separate eligibility row represents a user with no inviter but
-permanently closed eligibility and gives both commands one reliable concurrency
-lock. Commit order is deterministic and needs no time-window heuristic.
-
-**Alternatives considered**:
-
-- Infer eligibility from absence of a relationship. Rejected because it cannot
-  represent a purchase-closed user.
-- Compare timestamps after concurrent work. Rejected as race-prone.
-
-## Decision 8: Rely On Relationship Identity For Apply Idempotency
-
-**Decision**: `POST /v1/referrals/applications` does not require an
-`Idempotency-Key`. The authenticated invitee identity and unique relationship
-are the durable command identity: retrying the attached canonical code returns
-`ALREADY_ATTACHED`; a different code returns `REFERRAL_ALREADY_ATTACHED`.
-Concurrent attempts serialize on eligibility and database uniqueness.
-
-**Rationale**: A header would require an additional durable request-result
-table to add guarantees. The domain itself already has exactly one permanent
-result per invitee, so a client key would duplicate rather than strengthen
-idempotency.
-
-**Alternatives considered**:
-
-- Require `Idempotency-Key` but do not persist it. Rejected as misleading.
-- Persist public request identities. Rejected as unnecessary state for a
-  naturally idempotent one-time command.
-
-## Decision 9: Provision Existing Codes With Backfill Plus Lazy Repair
-
-**Decision**: The schema migration creates only empty referral tables,
-constraints, indexes, and triggers. A separate idempotent `referral:provision`
-command creates promo/eligibility rows for existing users in bounded keyset
-batches, retries code collisions, and supports `--dry-run`. Deployment runs the
-command before enabling referral UI. Authenticated reads may lazily provision a
-missing promo/eligibility pair as a safety net.
-
-Provisioning never creates welcome entitlements, relationships, or wallet
-operations. It logs scanned/created/already-present/collision/failure counts and
-can be safely rerun. Batch commits avoid a long user-table lock; rollback means
-disabling UI and rerunning after correction, not deleting already issued stable
-codes.
-
-**Rationale**: Random codes cannot be safely or deterministically generated in
-a reviewed SQL migration with application collision policy. A separate command
-provides dry-run, bounded locks, observability, and repeatability while lazy
-repair prevents a missed row from breaking one user.
-
-**Alternatives considered**:
-
-- SQL migration backfill. Rejected because collision handling and operational
-  visibility are poor and migration duration grows with user count.
-- Lazy-only provisioning. Rejected because it does not ensure all existing
-  registered users are ready before rollout.
+Every protected business operation reads the database; the flag is not cached in process memory. Public availability may be HTTP-cached only with `Cache-Control: no-store`, so each refresh observes authoritative storage.
 
-## Decision 10: Validate Bonus Configuration At Startup
-
-**Decision**: Add `REFERRAL_WELCOME_BONUS_ML` and
-`REFERRAL_INVITER_BONUS_ML` to the existing Zod environment schema. Values are
-canonical positive integers in `1..9223372036854775807`, parsed to `bigint` by a
-referral configuration provider. Development/test defaults are `10000` and
-`5000`. Staging/production require both values explicitly. Missing, zero,
-negative, fractional, or out-of-range values fail startup.
+**Rationale**: PostgreSQL is already mandatory, durable, shared by API instances, and supports transactions and locks. This satisfies restart persistence and multi-instance consistency without Redis pub/sub or a new service.
 
-Each entitlement stores the parsed amount at creation. Delivery uses that
-stored amount; later configuration changes affect only new entitlements. Mobile
-never submits an amount. The authenticated summary may expose only the current
-inviter reward needed to explain the screen.
-
-**Rationale**: Fail-fast prevents a running instance from creating incomplete
-obligations with invalid policy. Exact strings avoid JavaScript number limits.
+**Alternatives considered**: Environment variables and mobile constants require restart/release. Per-instance memory is inconsistent. Redis adds a dependency and persistence semantics not needed here. A generic feature-flag platform is disproportionate for one flag.
 
-**Alternatives considered**:
+## R3. Flag Failure Semantics
 
-- Disable referral processing while the API otherwise starts. Rejected because
-  it creates a partially healthy deployment and ambiguous registration effects.
-- Hard-code amounts in mobile or domain code. Rejected by FR-009/FR-020.
-
-## Decision 11: Combine Promo And Summary Reads
-
-**Decision**: Expose three authenticated routes:
-
-- `GET /v1/referrals/me` returns own code/link, eligibility/attachment state,
-  current inviter reward for explanation, credited inviter-bonus total, and
-  credited invitation count.
-- `POST /v1/referrals/applications` explicitly applies one submitted code.
-- `GET /v1/referrals/invitations` returns successfully credited invitation
-  history with
-  opaque cursor pagination.
+**Decision**: Referral behavior fails closed when the flag row cannot be read. Public availability reports `referralProgramEnabled: false` only when an authoritative disabled row is read; storage failures return retryable `503`, and mobile treats unknown/error as unavailable and hides referral UI. Registration itself continues; if the flag cannot be authoritatively read at completion, it skips referral effects and clears pending promo context rather than failing account creation.
 
-All responses use `Cache-Control: no-store`, derive owner identity from
-`AccessSessionGuard`, and shape explicit DTOs. History contains only a public
-relationship UUID, a label revealing at most the last two phone digits,
-database-assigned `appliedAt` persisted by the transaction that successfully
-creates the relationship and returned unchanged on replay,
-`CREDITED`, and exact credited millilitres. Recovery state,
-database IDs of either user, full phones, business keys, and wallet fields are
-absent.
+**Rationale**: This prevents accidental bonuses and UI exposure while preserving the primary registration flow. It also avoids misrepresenting a database outage as a durable operator decision.
 
-**Rationale**: Combining promo and summary avoids an extra initial request while
-keeping the separately paginated collection bounded. Only `DELIVERED` inviter
-entitlements contribute to `creditedInvitationCount`, credited totals, and
-`CREDITED` history rows.
+**Alternatives considered**: Defaulting enabled on read errors risks uncontrolled awards. Failing registration violates the specification. Returning `false` on server failure prevents clients from distinguishing an outage from a deliberate disable.
 
-**Alternatives considered**:
+## R4. Toggle Linearization and Races
 
-- Separate promo and summary endpoints. Rejected as redundant for the single
-  referral screen.
-- Return relationship/delivery internals. Rejected by FR-039.
+**Decision**: Use the singleton row as the database serialization point. Referral relationship/entitlement creation and recovery claim acquisition take a shared lock on the enabled row within their transaction. Add a narrow trusted wallet method for referral credit that takes the same shared row lock inside the wallet ledger transaction immediately before the idempotent ledger insert. The operational update takes an exclusive lock, changes `enabled/revision`, and returns only after earlier shared-lock holders complete. Claimed work is returned to retryable pending state when disabled.
 
-## Decision 12: Use A Monotonic Sequence Cursor
+The toggle response is the external linearization boundary: work that already held the shared lock may complete before the disable response; no new relationship, entitlement, claim, or credit may start after that response. Stable wallet business-event keys and unique constraints cover crash/retry ambiguity.
 
-**Decision**: Give each relationship a database-generated unique `bigint`
-sequence and order history by `sequence DESC`, indexed with
-`(inviterUserId, sequence DESC)`. The opaque cursor is a bounded base64url
-versioned object containing the last canonical decimal sequence. Query with the
-authenticated inviter and `sequence < cursor`, fetching `limit + 1`. Default
-limit is 20; maximum is 100.
+**Rationale**: This gives precise semantics across API instances without a distributed cache. A service-layer precheck alone is insufficient because the existing wallet credit uses its own transaction. The wallet remains the sole ledger writer; the new trusted method only adds the feature-state guard. Tests must pause at lock/check hooks to prove both orderings.
 
-**Rationale**: This matches the implemented wallet-history convention, avoids
-timestamp ties and UUID ordering, and gives stable continuation when new rows
-arrive. Ownership is always included in the query.
+**Alternatives considered**: A bounded cache or service-layer recheck cannot give the required post-toggle boundary. Holding a database transaction open across arbitrary network I/O was rejected. Cancelling historical obligations was rejected.
 
-**Alternatives considered**:
+## R5. Registration-Only Application
 
-- Offset pagination. Rejected because concurrent inserts cause duplicates or
-  omissions.
-- Sort by delivery time. Rejected because retries would change relationship
-  ordering.
+**Decision**: Keep pending promo context only in the existing registration flow. Prevalidation remains privacy-safe, but durable referral work runs only in successful registration completion after OTP and legal acceptance. Within that transaction, check enabled state, provision the new user's stable promo code, and optionally create one `REGISTRATION` relationship plus one `INVITER` entitlement. Disabled/unknown state creates neither and does not retain the supplied code.
 
-## Decision 13: Follow The Existing MobX/RxJS Composition Pattern
+Repeated registration completion uses the existing registration completion identity plus database uniqueness (`inviteeUserId`, relationship entitlement, wallet event key). Competing codes have one durable winner; retries return the stored result.
 
-**Decision**: Add `ReferralApi`, `ReferralStore`, a disposable
-`ReferralFlowService`, and `ReferralCompositionRoot` beside the wallet feature.
-Adapters expose cold Observables with abort teardown. The flow reacts to session
-identity, cancels work on logout/replacement, checks a session generation before
-every mutation, reloads after restoration/login, serializes pagination, and
-clears all private state on invalidation. React screens only observe stores and
-invoke commands.
+**Rationale**: The current registration integration already runs at the correct lifecycle boundary. Removing its welcome branch and post-registration service narrows rather than replaces the transaction.
 
-Add a minimal authenticated native stack containing `Wallet`, `Referral`, and
-`ApplyReferralCode`; do not add bottom tabs or redesign the home experience.
+**Alternatives considered**: Applying at OTP verification is premature because legal acceptance can remain incomplete. Applying after commit creates a relationship/registration split. Keeping an authenticated apply endpoint conflicts with the specification.
 
-**Rationale**: This is the implemented feature-002/004 architecture and meets
-Constitution IX without duplicating state in components.
+## R6. Legacy Schema and Historical Data
 
-**Alternatives considered**:
+**Decision**: Use two migrations. The expand migration adds/seeds the feature-state row and leaves `ReferralEligibility` available for rolling compatibility. After all old API instances are drained and the new backend no longer reads or writes eligibility, a contract migration drops the `ReferralEligibility` table and its user relation. It is transient permission state, not an accounting fact, and is no longer meaningful. Do not cascade to users, relationships, entitlements, or wallet rows.
 
-- Component-owned fetch/React state. Rejected because cancellation and identity
-  replacement become unreliable.
-- Expo Router or a new navigation system. Rejected as a broad migration.
+Retain `ReferralApplicationChannel.POST_REGISTRATION` and `ReferralBonusKind.WELCOME` as legacy-only enum values. Retain all historical relationships and entitlement rows unchanged. New code writes only `REGISTRATION` and `INVITER`; queries and recovery are explicitly scoped to inviter entitlements. Historical delivered welcome wallet entries remain immutable. Undelivered legacy welcome entitlements are retained for audit but are not claimed by the revised referral recovery path.
 
-## Decision 14: Add Only Expo Clipboard
+**Rationale**: Removing enum values in PostgreSQL while rows may reference them requires destructive rewrites and provides no product value. Dropping eligibility removes operationally stale state safely because relationship and ledger facts live elsewhere.
 
-**Decision**: Plan one new runtime dependency, Expo SDK 54-compatible
-`expo-clipboard` (resolved by `expo install` during implementation), for copying
-the exact code. Use React Native's existing `Share` API for text/link sharing.
-Wrap both Promise APIs behind a cold Observable native-actions adapter.
+**Alternatives considered**: Dropping all legacy columns/enums risks historical loss. Keeping eligibility indefinitely invites accidental reuse. Converting welcome rows to inviter rows would falsify audit history.
 
-**Rationale**: React Native core no longer supplies a supported Clipboard API,
-while Expo Clipboard is the SDK-aligned small native module. Core `Share`
-already opens the correct system share sheet.
+## R7. Bonus Configuration
 
-**Alternatives considered**:
+**Decision**: Remove `REFERRAL_WELCOME_BONUS_ML` from env schema, defaults, templates, services, and tests. Keep and validate only `REFERRAL_INVITER_BONUS_ML`; copy its value into each entitlement at creation.
 
-- `expo-sharing`: rejected because it shares files, not invitation text.
-- `expo-linking`: rejected because existing `Linking` and the API-provided link
-  cover the custom-scheme requirement.
-- bottom-tabs, icon, SVG, AsyncStorage, or new state dependencies: rejected as
-  unnecessary or harmful to server-authoritative session-scoped data.
+**Rationale**: Only the inviter amount remains configurable, while storing the awarded amount preserves audit behavior after configuration changes.
 
-## Decision 15: Treat The Mockup As Visual Direction Only
+**Alternatives considered**: Setting welcome to zero retains dead configuration and invalid zero-value semantics. Deleting the historical entitlement amount would damage auditability.
 
-**Decision**: Preserve the mockup's back header, strong referral hero, prominent
-code card, copy/share action, explanation, total, and history hierarchy using
-native responsive components. Do not embed the mockup image. Replace its 20 L,
-full names, reward-after-purchase wording, illustrative code/data, and five-tab
-navigation with server values, masked labels, relationship-attachment semantics
-for apply responses, delivered-only `CREDITED` history, real code, and
-native-stack navigation.
+## R8. Operational HTTP Security
 
-**Rationale**: Those mockup details conflict with the approved specification and
-AGENTS UI rules.
+**Decision**: Add an OpenAPI-excluded controller at `GET` and `PUT /internal/feature-flags/referral-program`. Protect both with a dedicated `REFERRAL_OPERATIONS_TOKEN` supplied as `Authorization: Bearer ...`, compared using the existing SHA-256 plus `timingSafeEqual` pattern. Require the token in staging/production; an absent/invalid token returns `401` with no state. Validate PUT strictly as `{ "enabled": boolean }`; reject extra fields. Do not accept actor identity from clients or log the token/body headers.
 
-**Alternatives considered**:
+The PUT is idempotent: setting the current value returns the same state and does not advance `revision`; a real transition increments it. Responses contain only `key`, `enabled`, `revision`, and `updatedAt`.
 
-- Pixel-copy the complete screen and business text. Rejected because the mockup
-  is demonstrative, not a product contract.
+**Rationale**: This matches the existing internal metrics boundary while separating operational authority from metrics credentials. Excluding the endpoint from the public generated API prevents accidental client exposure.
 
-## Decision 16: Require Real PostgreSQL For Persistence Guarantees
+**Alternatives considered**: Reusing access JWTs grants end users the wrong authority. Reusing the metrics token unnecessarily couples privileges. Query-string secrets leak through logs.
 
-**Decision**: Unit tests cover canonicalization, domain errors, configuration,
-DTO shaping, worker classification, stores, and flows. HTTP tests cover auth and
-public contracts. Opt-in PostgreSQL tests deploy real migrations into isolated
-schemas and cover unique/check constraints, triggers, rollback, 100-way races,
-lease reclaim/concurrent workers, exactly-once wallet effects, and 250-row
-pagination. Redis-backed auth tests cover pending promo/completion recovery.
+## R9. Curl and Root Package Commands
 
-**Rationale**: Mocks and SQLite cannot prove PostgreSQL row locks,
-`SKIP LOCKED`, partial unique indexes, trigger immutability, or transactional
-rollback.
+**Decision**: Add `scripts/set-referral-feature.mjs` and root scripts `referral:enable` and `referral:disable`. The script reads `REFERRAL_OPERATIONS_URL` and `REFERRAL_OPERATIONS_TOKEN`, sends strict JSON PUT with Node's built-in `fetch`, fails on non-2xx/malformed responses, then performs authenticated GET read-back and exits non-zero unless the authoritative value matches. Curl examples use `--fail-with-body --silent --show-error` and the same environment variables.
 
-**Alternatives considered**:
+**Rationale**: A checked-in Node helper is portable in the repository's required Node 24 runtime and can reliably parse and verify state. No shell quoting or secret is embedded in `package.json`.
 
-- Mock-only concurrency tests. Rejected because they test an invented scheduler,
-  not database behavior.
+**Alternatives considered**: Inline curl scripts are platform-dependent and awkward to verify. Adding a CLI dependency is unnecessary.
+
+## R10. Public Availability and Disabled Errors
+
+**Decision**: Add unauthenticated `GET /v1/app-config` returning `{ "features": { "referralProgramEnabled": boolean } }` with `Cache-Control: no-store`. This endpoint contains no operational revision, timestamps, or configuration values. Authenticated `GET /v1/referrals/me` and `/invitations` return HTTP `503` with the standard public envelope and code `FEATURE_DISABLED` when authoritatively disabled. The removed POST apply endpoint returns the normal route-not-found behavior because it no longer exists.
+
+**Rationale**: Registration UI needs availability before authentication, and an app-config envelope is extensible without exposing operational state. A stable 503 code is explicit and retryable after operator re-enable.
+
+**Alternatives considered**: An authenticated-only endpoint cannot gate registration UI. Returning empty referral data would conflate disabled and no-history states. `404` was rejected because clients need a stable disabled result.
+
+## R11. Recovery Pause and Resume
+
+**Decision**: Claim only `INVITER` entitlements while enabled. On disabled state, scheduled and inline recovery claim zero rows. A worker that loses the race after claiming rechecks before wallet credit and releases the lease back to pending without incrementing business identity. On re-enable, the existing lease/backoff worker resumes; wallet event uniqueness makes delivery exactly once.
+
+**Rationale**: Durable entitlements are obligations and must survive the pause. Deleting them or marking permanent failure would violate recovery requirements.
+
+**Alternatives considered**: Letting already claimed jobs deliver after disable contradicts the successful-toggle boundary. Creating a second paused status is unnecessary because pending plus leases already model resumable work.
+
+## R12. Mobile State and Cancellation
+
+**Decision**: Add a typed app-config adapter, a MobX `FeatureAvailabilityStore`, and an RxJS-backed service using `switchMap` for startup/refresh/session replacement. Unknown/loading/error fail closed in presentation. Inject the single availability owner through `App.tsx`, auth composition, referral composition, and navigators.
+
+On enabled to disabled, cancel/invalidate referral requests, clear `ReferralStore`, clear pending registration promo (and persist null when authorized), hide the promo field and all referral navigation/content/actions, and leave an open referral route. Signed-in referral deep links are ignored. `FEATURE_DISABLED` responses also invalidate visible referral state. Re-enable reloads server data but never resurrects an old pending code.
+
+**Rationale**: This follows the project's MobX ownership and RxJS cancellation rules and extends existing generation-token protection rather than duplicating state in React.
+
+**Alternatives considered**: React-local flags duplicate state. Build-time constants are not authoritative. Merely disabling buttons leaks stale data and violates the UI requirement.
+
+## R13. OpenAPI Source and Generated Artifact
+
+**Decision**: Keep public endpoints in `contracts/openapi.yaml`; place the excluded internal controller contract in `contracts/operational-feature-flag.openapi.yaml`. Update `openapi.generated.json` to the intended public surface and regenerate it from Nest decorators during implementation to detect drift. Delete apply DTO schemas and eligibility fields from both public artifacts.
+
+**Rationale**: Public and privileged API boundaries should be reviewed separately, while source and generated public contracts must agree.
+
+**Alternatives considered**: Publishing operational routes in the mobile-facing OpenAPI increases accidental exposure. Leaving stale generated schemas makes contract tests misleading.
+
+## R14. Rollout and Rollback
+
+**Decision**: Roll out in compatibility order: additive flag migration default-enabled; backend that supports both old stored history and new semantics; operator credentials/scripts; mobile availability gating; validation; then optional disable/enable exercise. Remove eligibility only in the backend-compatible migration window. Do not deploy a mobile version that assumes the public config endpoint before backend availability.
+
+Rollback uses the previous backend only while the additive flag table and retained legacy enum/data remain compatible. Do not roll back to code that creates welcome/apply effects after product cutover unless the business explicitly accepts that behavior. The flag can be disabled before application rollback to prevent new referral effects. Schema rollback must never delete history or reverse wallet entries.
+
+**Rationale**: Default-enabled avoids an accidental outage, while backend-first preserves old mobile behavior until the availability-aware release is deployed.
+
+**Alternatives considered**: Mobile-first produces unknown availability and hidden UI. Destructive down migrations conflict with immutable history.

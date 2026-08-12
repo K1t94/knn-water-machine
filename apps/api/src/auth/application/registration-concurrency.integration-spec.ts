@@ -246,11 +246,10 @@ describe('RegistrationService concurrency and repair', () => {
             sessions as unknown as SessionsService,
             crypto,
             {
-                prevalidatePendingPromo: vi.fn(async () => null),
                 completeOnboarding: vi.fn(async () => ({
                     promoCode: '23456789ABCD',
                     relationshipCreated: false,
-                    entitlementIds: [],
+                    inviterEntitlementIds: [],
                 })),
                 deliverAfterCommit: vi.fn(async () => undefined),
             } as never,

@@ -20,23 +20,6 @@ describe('FetchReferralApi', () => {
         );
     });
 
-    it('canonicalizes the apply payload without sending user or bonus fields', async () => {
-        const fetcher = vi.fn(async () =>
-            response({ status: 'ATTACHED', promoCode: '23456789ABCD', appliedAt: '2026-08-10T10:00:00.000Z' }),
-        ) as unknown as typeof fetch;
-        const api = new FetchReferralApi('https://api.example.test', 1_000, fetcher);
-
-        await firstValueFrom(api.apply('access-token', '  23456789abcd  '));
-
-        expect(fetcher).toHaveBeenCalledWith(
-            'https://api.example.test/v1/referrals/applications',
-            expect.objectContaining({
-                body: JSON.stringify({ promoCode: '23456789ABCD' }),
-                method: 'POST',
-            }),
-        );
-    });
-
     it('requests deterministic invitation pages and rejects extra response fields', async () => {
         const fetcher = vi
             .fn()
@@ -57,12 +40,12 @@ describe('FetchReferralApi', () => {
 
     it('maps stable errors and aborts an in-flight request on unsubscribe', async () => {
         const errorFetcher = vi.fn(async () =>
-            response({ error: { code: 'REFERRAL_ELIGIBILITY_CLOSED', retryable: false } }, 409),
+            response({ error: { code: 'FEATURE_DISABLED', retryable: false } }, 503),
         ) as unknown as typeof fetch;
         const api = new FetchReferralApi('https://api.example.test', 1_000, errorFetcher);
 
-        await expect(firstValueFrom(api.apply('token', '23456789ABCD'))).rejects.toEqual(
-            new ReferralApiError('REFERRAL_ELIGIBILITY_CLOSED', false),
+        await expect(firstValueFrom(api.getMe('token'))).rejects.toEqual(
+            new ReferralApiError('FEATURE_DISABLED', false),
         );
 
         let signal: AbortSignal | undefined;
@@ -85,8 +68,6 @@ function summary() {
     return {
         promoCode: '23456789ABCD',
         referralLink: 'kaynann://register?promo=23456789ABCD',
-        eligibility: 'OPEN' as const,
-        attachedPromoCode: null,
         currentInviterRewardMl: '5000',
         creditedInviterBonusMl: '9007199254740993',
         creditedInvitationCount: 2,

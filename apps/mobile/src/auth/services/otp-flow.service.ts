@@ -23,6 +23,7 @@ export class OtpFlowService implements OtpCommands {
         private readonly api: OtpApi,
         private readonly getPendingPromoCode: () => string | undefined = () => undefined,
         private readonly onVerified?: (result: OtpVerified) => void,
+        private readonly isReferralEnabled: () => boolean = () => true,
     ) {
         this.subscriptions.add(interval(250).subscribe(() => this.store.tick(Date.now())));
         this.subscriptions.add(this.commands.pipe(exhaustMap((command) => this.execute(command))).subscribe());
@@ -53,7 +54,7 @@ export class OtpFlowService implements OtpCommands {
             const challenge = this.store.challenge;
             if (!challenge || !this.store.canSubmitCode) return EMPTY;
             return defer(() => {
-                const pendingPromoCode = this.getPendingPromoCode();
+                const pendingPromoCode = this.readPendingPromoCode();
                 this.store.beginVerify();
                 return this.api.verifyOtp({
                     phone,
@@ -79,7 +80,7 @@ export class OtpFlowService implements OtpCommands {
         if (command === 'resend' && !this.store.canResend) return EMPTY;
 
         return defer(() => {
-            const pendingPromoCode = this.getPendingPromoCode();
+            const pendingPromoCode = this.readPendingPromoCode();
             this.store.beginSend();
             const common = {
                 phone,
@@ -101,6 +102,10 @@ export class OtpFlowService implements OtpCommands {
                 return EMPTY;
             }),
         );
+    }
+
+    private readPendingPromoCode(): string | undefined {
+        return this.isReferralEnabled() ? this.getPendingPromoCode() : undefined;
     }
 }
 

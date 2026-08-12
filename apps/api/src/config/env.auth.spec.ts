@@ -17,8 +17,8 @@ function validEnv(overrides: Record<string, string | undefined> = {}): NodeJS.Pr
         FINGERPRINT_HMAC_KEY: secret32,
         REGISTRATION_RESULT_ENCRYPTION_KEY: secret32,
         JWT_ACCESS_SIGNING_KEY: secret32,
-        REFERRAL_WELCOME_BONUS_ML: '10000',
         REFERRAL_INVITER_BONUS_ML: '5000',
+        REFERRAL_OPERATIONS_TOKEN: secret32,
         ...overrides,
     };
 }

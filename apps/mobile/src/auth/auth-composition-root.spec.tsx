@@ -42,7 +42,14 @@ describe('AuthCompositionRoot child scope lifetime', () => {
             </RegistrationFlowProvider>,
         );
 
-        expect(Object.keys(root)).toEqual(['api', 'registrationStorage', 'sessionStore', 'sessionFlow']);
+        expect(Object.keys(root)).toEqual([
+            'api',
+            'registrationStorage',
+            'sessionStore',
+            'featureAvailabilityStore',
+            'sessionFlow',
+            'featureAvailabilityService',
+        ]);
 
         await otpView.unmount();
         await registrationView.unmount();

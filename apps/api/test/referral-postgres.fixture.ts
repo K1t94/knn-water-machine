@@ -10,6 +10,14 @@ export const referralPostgresEnabled =
     process.env.RUN_POSTGRES_INTEGRATION === '1' && typeof process.env.DATABASE_URL === 'string';
 export const repositoryRoot = resolve(__dirname, '../../..');
 export const apiPrismaDirectory = join(repositoryRoot, 'apps/api/prisma');
+export const referralProgramFeatureKey = 'REFERRAL_PROGRAM' as const;
+
+export interface ReferralFeatureStateSnapshot {
+    readonly key: typeof referralProgramFeatureKey;
+    readonly enabled: boolean;
+    readonly revision: bigint;
+    readonly updatedAt: Date;
+}
 
 export interface ReferralPostgresSchema {
     readonly name: string;
@@ -23,6 +31,43 @@ export function withSchema(databaseUrl: string, schema: string): string {
     const url = new URL(databaseUrl);
     url.searchParams.set('schema', schema);
     return url.toString();
+}
+
+export async function createIndependentReferralPrismaClient(databaseUrl: string): Promise<PrismaClient> {
+    const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+    await prisma.$connect();
+    return prisma;
+}
+
+export async function readReferralFeatureState(
+    prisma: PrismaClient | Prisma.TransactionClient,
+): Promise<ReferralFeatureStateSnapshot> {
+    return prisma.referralFeatureState.findUniqueOrThrow({ where: { key: referralProgramFeatureKey } });
+}
+
+export async function resetReferralFeatureState(
+    prisma: PrismaClient | Prisma.TransactionClient,
+    enabled = true,
+): Promise<ReferralFeatureStateSnapshot> {
+    return prisma.referralFeatureState.update({
+        where: { key: referralProgramFeatureKey },
+        data: { enabled, revision: 1n },
+    });
+}
+
+export async function lockReferralFeatureState(
+    transaction: Prisma.TransactionClient,
+    mode: 'SHARE' | 'UPDATE',
+): Promise<ReferralFeatureStateSnapshot> {
+    const rows = await transaction.$queryRawUnsafe<ReferralFeatureStateSnapshot[]>(
+        `SELECT "key", "enabled", "revision", "updatedAt"
+         FROM "ReferralFeatureState"
+         WHERE "key" = $1::"ReferralFeatureKey"
+         FOR ${mode}`,
+        referralProgramFeatureKey,
+    );
+    if (rows.length === 0) throw new Error('Referral program feature state is missing.');
+    return rows[0];
 }
 
 export function deployReferralMigrations(
@@ -60,7 +105,12 @@ export async function createReferralPostgresSchema(label: string): Promise<Refer
     const baseUrl = process.env.DATABASE_URL;
     if (!baseUrl) throw new Error('DATABASE_URL is required for referral PostgreSQL tests.');
 
-    const name = `referral_${label}_${randomUUID().replaceAll('-', '')}`;
+    if (!/^[a-z0-9_]+$/u.test(label)) throw new Error('Referral PostgreSQL schema label must be lowercase ASCII.');
+
+    const prefix = 'referral_';
+    const suffix = randomUUID().replaceAll('-', '');
+    const maxLabelLength = 63 - prefix.length - 1 - suffix.length;
+    const name = `${prefix}${label.slice(0, maxLabelLength)}_${suffix}`;
     const admin = new PrismaClient({ datasourceUrl: baseUrl });
     const url = withSchema(baseUrl, name);
     const prisma = new PrismaClient({ datasourceUrl: url });

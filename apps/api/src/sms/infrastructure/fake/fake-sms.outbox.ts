@@ -23,6 +23,8 @@ export class FakeSmsOutbox {
 
         const otp = /\b(\d{6})\b/.exec(command.message)?.[1];
 
+        console.log('OTP', otp)
+
         if (!otp) {
             return;
         }

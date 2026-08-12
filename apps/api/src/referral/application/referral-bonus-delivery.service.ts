@@ -45,6 +45,10 @@ export class ReferralBonusDeliveryService implements ReferralBonusDelivery {
             this.counters.permanentFailure += 1;
             return { status: 'PERMANENT_FAILURE', errorCode: 'REFERRAL_ENTITLEMENT_NOT_FOUND' };
         }
+        if (entitlement.kind !== 'INVITER') {
+            this.counters.permanentFailure += 1;
+            return { status: 'PERMANENT_FAILURE', errorCode: 'REFERRAL_ENTITLEMENT_KIND_UNSUPPORTED' };
+        }
         if (!this.canUseLease(entitlement, input.expectedLeaseOwner)) {
             this.counters.staleLease += 1;
             return { status: 'STALE_LEASE' };
@@ -62,6 +66,7 @@ export class ReferralBonusDeliveryService implements ReferralBonusDelivery {
                 source: entitlement.walletSource,
                 occurredAt: entitlement.occurredAt,
                 ownerStatusPolicy: 'EXISTING_OWNER',
+                featureGuard: 'REFERRAL_PROGRAM_ENABLED',
             });
             const completed = await this.repository.completeDelivery(
                 entitlement.id,

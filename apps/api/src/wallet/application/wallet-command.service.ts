@@ -86,6 +86,7 @@ export class WalletCommandService {
             direction,
             compensatesEntryId,
             ownerStatusPolicy,
+            featureGuard: this.featureGuard(command),
         } as ValidatedWalletCommand;
     }
 
@@ -112,6 +113,13 @@ export class WalletCommandService {
         if (policy === 'ACTIVE_ONLY' || policy === 'EXISTING_OWNER') {
             return policy;
         }
+        throw this.invalidEvent();
+    }
+
+    private featureGuard(command: Record<string, unknown>): 'REFERRAL_PROGRAM_ENABLED' | null {
+        const guard = command.featureGuard;
+        if (guard === undefined) return null;
+        if (guard === 'REFERRAL_PROGRAM_ENABLED') return guard;
         throw this.invalidEvent();
     }
 

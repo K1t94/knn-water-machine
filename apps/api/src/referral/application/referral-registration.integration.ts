@@ -4,7 +4,6 @@ export const REFERRAL_REGISTRATION_INTEGRATION = Symbol('REFERRAL_REGISTRATION_I
 
 export interface CompleteReferralOnboardingInput {
     readonly userId: string;
-    readonly isNewUser: boolean;
     readonly pendingPromoCode: string | null;
     readonly completedAt: Date;
     readonly registrationCompletionId: string;
@@ -13,14 +12,13 @@ export interface CompleteReferralOnboardingInput {
 export interface CompleteReferralOnboardingResult {
     readonly promoCode: PromoCode;
     readonly relationshipCreated: boolean;
-    readonly entitlementIds: readonly ReferralEntitlementId[];
+    readonly inviterEntitlementIds: readonly ReferralEntitlementId[];
 }
 
 export interface ReferralRegistrationIntegration<TTransaction = unknown> {
-    prevalidatePendingPromo(pendingPromoCode: string | null, inviteeUserId?: string): Promise<PromoCode | null>;
     completeOnboarding(
         transaction: TTransaction,
         input: CompleteReferralOnboardingInput,
     ): Promise<CompleteReferralOnboardingResult>;
-    deliverAfterCommit(entitlementIds: readonly ReferralEntitlementId[]): Promise<void>;
+    deliverAfterCommit(inviterEntitlementIds: readonly ReferralEntitlementId[]): Promise<void>;
 }

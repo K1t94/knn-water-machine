@@ -1,8 +1,5 @@
 import type {
     PromoCode,
-    PurchaseBusinessEventKey,
-    ReferralApplicationChannel,
-    ReferralApplicationStatus,
     ReferralBonusKind,
     ReferralCursor,
     ReferralDeliveryStatus,
@@ -35,10 +32,9 @@ export interface ListReferralProvisioningCandidatesInput {
     readonly limit: number;
 }
 
-export interface ApplyReferralCodeInput {
+export interface AttachRegistrationReferralInput {
     readonly inviteeUserId: string;
     readonly promoCode: PromoCode;
-    readonly channel: ReferralApplicationChannel;
     readonly inviterEntitlement: CreateInviterEntitlementInput;
 }
 
@@ -51,39 +47,13 @@ export interface CreateInviterEntitlementInput {
     readonly occurredAt: Date;
 }
 
-export interface CreateWelcomeEntitlementInput {
-    readonly id: ReferralEntitlementId;
-    readonly beneficiaryUserId: string;
-    readonly amountMl: ReferralMillilitres;
-    readonly walletBusinessEventKey: string;
-    readonly walletOperationKind: 'REFERRAL_WELCOME_BONUS';
-    readonly walletSource: 'REFERRAL_PROGRAM';
-    readonly occurredAt: Date;
-}
-
-export interface CreateWelcomeEntitlementResult {
-    readonly entitlementId: ReferralEntitlementId;
+export interface AttachRegistrationReferralResult {
     readonly created: boolean;
-}
-
-export interface ApplyReferralCodeResult {
-    readonly status: ReferralApplicationStatus;
     readonly canonicalPromoCode: PromoCode;
     readonly appliedAt: Date;
     readonly relationshipId: ReferralRelationshipId;
     readonly inviterEntitlementId: ReferralEntitlementId;
 }
-
-export interface CloseReferralEligibilityInput {
-    readonly userId: string;
-    readonly purchaseBusinessEventKey: PurchaseBusinessEventKey;
-    readonly succeededAt: Date;
-}
-
-export type CloseReferralEligibilityResult =
-    | Readonly<{ status: 'CLOSED'; closedAt: Date }>
-    | Readonly<{ status: 'ALREADY_CLOSED'; closedAt: Date }>
-    | Readonly<{ status: 'ALREADY_ATTACHED' }>;
 
 export interface ReferralEntitlement {
     readonly id: ReferralEntitlementId;
@@ -142,8 +112,6 @@ export interface ReferralBonusDelivery {
 export interface ReferralSummary {
     readonly promoCode: PromoCode;
     readonly referralLink: string;
-    readonly applicationStatus: 'OPEN' | 'ATTACHED' | 'CLOSED';
-    readonly attachedPromoCode: PromoCode | null;
     readonly deliveredInvitationCount: number;
     readonly deliveredInviterBonusMl: bigint;
 }
@@ -171,9 +139,7 @@ export interface ReferralProvisioningRepository {
 
 export interface ReferralRelationshipRepository {
     validatePromoCode(promoCode: PromoCode, inviteeUserId?: string): Promise<void>;
-    applyCode(input: ApplyReferralCodeInput): Promise<ApplyReferralCodeResult>;
-    closeEligibility(input: CloseReferralEligibilityInput): Promise<CloseReferralEligibilityResult>;
-    createWelcomeEntitlement(input: CreateWelcomeEntitlementInput): Promise<CreateWelcomeEntitlementResult>;
+    attachDuringRegistration(input: AttachRegistrationReferralInput): Promise<AttachRegistrationReferralResult>;
 }
 
 export interface ReferralBonusDeliveryRepository {

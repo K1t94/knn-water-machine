@@ -1,282 +1,297 @@
-# Tasks: Referral Program
+# Tasks: Referral Program Scope Revision
 
-**Input**: Design documents from `/specs/005-referral-program/`
+**Input**: Design documents from `specs/005-referral-program/`
 
 **Prerequisites**: `spec.md`, `plan.md`, `research.md`, `data-model.md`,
-`contracts/openapi.yaml`, `contracts/internal-referral-commands.md`, and
-`quickstart.md`
+`contracts/`, and `quickstart.md`
 
-**Tests**: Tests are required. Unit and HTTP tests run in the default hermetic
-suite. PostgreSQL concurrency, constraints, triggers, leases, rollback, and
-recovery use an opt-in PostgreSQL 17 suite. Registration integration uses both
-opt-in PostgreSQL 17 and Redis and must not be replaced by mocks or SQLite.
+**Tests**: Required by the specification and quickstart. Story test tasks are
+listed before implementation tasks and must initially fail for the revised
+behavior.
 
-**Organization**: The nine technical phases from `plan.md` are retained.
-Tasks in behavior phases are tagged with US1-US4 so each story has an explicit
-independent test and can be reviewed as a coherent increment.
+**Migration context**: The referral feature already exists. These tasks migrate
+the current implementation; they do not recreate it. Historical relationships,
+entitlements, wallet operations, and promo codes are preserved.
 
-## Format: `[ID] [P?] [Story marker(s)?] Description`
+## Format: `[ID] [P?] [Story?] Description`
 
-- **[P]**: Safe to execute in parallel because it changes different files and
-  does not depend on another incomplete task in the same phase.
-- One or more **[US1]-[US4]** markers identify every user story directly served
-  by a task. Shared infrastructure tasks may carry multiple markers.
-- Every task names exact files, dependencies, a minimum validation command, an
-  observable completion criterion, and required external services.
-- Commands marked **planned** may be used only after the task that adds the
-  corresponding `package.json` script.
+- **[P]**: Can run in parallel because it targets different files and has no
+  dependency on another incomplete task in the same phase.
+- **[US#]**: Maps the task to a user story in `spec.md`.
+- Every task names the exact file or files it changes.
 
-## Phase Mapping
+## Technical Phase Mapping
 
-| Tasks phase | `plan.md` implementation phase | Story focus |
-| --- | --- | --- |
-| Phase 1 | Domain contracts, configuration, promo-code rules | Shared foundation |
-| Phase 2 | Prisma migration and existing-user provisioning | Shared foundation |
-| Phase 3 | Repository, concurrency, immutable relationships | Shared foundation |
-| Phase 4 | Bonus entitlements, wallet delivery, recovery | Shared foundation |
-| Phase 5 | Registration completion integration | US1 |
-| Phase 6 | Authenticated referral API and OpenAPI | US2-US4 |
-| Phase 7 | Mobile API, MobX, RxJS, deep links | US1-US4 |
-| Phase 8 | Minimal referral UI and navigation | US1-US4 |
-| Phase 9 | Regression and full acceptance | All stories |
+| Requested technical work | Task phase |
+|---|---|
+| Additive migration and persistent feature state | Phases 1-2 |
+| Registration-only inviter bonus | Phase 3, US1 |
+| Remove welcome/apply/eligibility behavior | Phase 3, US1 |
+| Operational API, curl, and package commands | Phase 4, US2 |
+| Public availability and `FEATURE_DISABLED` | Phase 4, US2 |
+| Recovery pause/resume and wallet race barrier | Phase 4, US2 |
+| Mobile MobX/RxJS availability and hidden UI | Phase 5, US3 |
+| Eligibility contract migration | Phase 7 |
+| Contract, integration, concurrency, mobile, and rollout validation | Phase 8 |
 
 ---
 
-## Phase 1: Domain Contracts, Configuration, And Promo-Code Rules
+## Phase 1: Setup - Additive Migration And Configuration
 
-**Purpose**: Establish framework-independent types, validation, errors, and
-configuration before persistence or transport code.
+**Purpose**: Introduce the durable flag without changing current enabled
+behavior or historical referral data.
 
-- [X] T001 Verify the locked runtime/tooling and existing commands in `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, `apps/api/package.json`, and `apps/mobile/package.json`; depends on no prior task; validate with `pnpm check:repo && pnpm check:env`; done when Node 24, pnpm 11, Prisma 6, PostgreSQL 17, NestJS 11, Expo 54, React Native 0.81, React 19, TypeScript 5.9, Vitest 3, ESLint 9, and Prettier 3 match the plan and no unplanned framework upgrade is required; services: none.
-- [X] T002 [P] Add failing table-driven tests for exact positive `bigint` millilitres, public decimal-string serialization, wallet-range overflow, and rejection of zero, negative, fractional, `number`, and unsafe values in `apps/api/src/referral/domain/referral-types.spec.ts`; depends on T001; validate with `pnpm --filter @kaynann/api test -- src/referral/domain/referral-types.spec.ts`; done when tests encode millilitre-only referral amounts and fail only because the types are absent; services: none.
-- [X] T003 [P] Add failing tests for trim/uppercase canonicalization, the exact 12-character alphabet `23456789ABCDEFGHJKMNPQRSTVWXYZ`, non-ASCII and overlength rejection, CSPRNG rejection sampling, and eight-attempt collision exhaustion in `apps/api/src/referral/domain/promo-code.spec.ts`; depends on T001; validate with `pnpm --filter @kaynann/api test -- src/referral/domain/promo-code.spec.ts`; done when deterministic random-byte seams prove modulo bias is not accepted and invalid/unknown public errors are indistinguishable; services: none.
-- [X] T004 [P] Add failing tests for stable referral error codes and fixed phone masking as `**NN`, including short and malformed stored phones, in `apps/api/src/referral/domain/referral-errors.spec.ts` and `apps/api/src/referral/domain/phone-mask.spec.ts`; depends on T001; validate with `pnpm --filter @kaynann/api test -- src/referral/domain/referral-errors.spec.ts src/referral/domain/phone-mask.spec.ts`; done when the tests prohibit full-phone disclosure and database/Prisma details; services: none.
-- [X] T005 Implement exact millilitre, promo-code, relationship, eligibility, application-channel, entitlement, delivery, cursor, and public-status domain types plus stable errors in `apps/api/src/referral/domain/referral-types.ts` and `apps/api/src/referral/domain/referral-errors.ts`; depends on T002 and T004; validate with `pnpm --filter @kaynann/api test -- src/referral/domain/referral-types.spec.ts src/referral/domain/referral-errors.spec.ts`; done when no domain contract imports NestJS, Prisma, HTTP DTOs, or floating-point water values; services: none.
-- [X] T006 Implement promo input canonicalization and validation, `crypto.randomBytes` generation with rejection sampling, collision retry capped at eight attempts, and a maximum raw input length in `apps/api/src/referral/domain/promo-code.ts`; depends on T003 and T005; validate with `pnpm --filter @kaynann/api test -- src/referral/domain/promo-code.spec.ts`; done when every generated code is exactly 12 canonical characters, collisions never replace existing codes, and invalid syntax maps to the same safe public error as unknown codes; services: none.
-- [X] T007 [P] Implement privacy-safe last-two-digit masking in `apps/api/src/referral/domain/phone-mask.ts`; depends on T004; validate with `pnpm --filter @kaynann/api test -- src/referral/domain/phone-mask.spec.ts`; done when public output is always `**NN` for valid stored phones and never reveals additional digits; services: none.
-- [X] T008 Define Prisma-free repository, onboarding, eligibility-close, bonus-delivery, provisioning, and query ports in `apps/api/src/referral/application/ports/referral.repository.ts`, `apps/api/src/referral/application/referral-registration.integration.ts`, and `apps/api/src/referral/composition/close-referral-eligibility.ts`; depends on T005 and T006; validate with `pnpm --filter @kaynann/api typecheck`; done when contracts cover registration/post-registration channels, stable purchase-event identity, deterministic cursors, delivery outcomes, and transaction-aware onboarding without exposing public HTTP writes; services: none.
-- [X] T009 [P] Add failing configuration tests for development/test defaults `10000` and `5000`, mandatory staging/production values, whole positive decimal input, and wallet-range rejection in `apps/api/src/config/env.referral.spec.ts`; depends on T002; validate with `pnpm --filter @kaynann/api test -- src/config/env.referral.spec.ts`; done when missing production values and zero, negative, fractional, or overflowing values are startup failures; services: none.
-- [X] T010 Implement `REFERRAL_WELCOME_BONUS_ML` and `REFERRAL_INVITER_BONUS_ML` parsing/validation in `apps/api/src/config/env.ts` and document non-production defaults plus required production values in `apps/api/.env.example`; depends on T005 and T009; validate with `pnpm --filter @kaynann/api test -- src/config/env.referral.spec.ts && pnpm --filter @kaynann/api typecheck`; done when configuration is represented as exact bigint millilitres, invalid startup fails closed, and mobile receives no configuration authority; services: none.
+- [X] T001 Add the singleton `ReferralFeatureState` Prisma model and the enabled-by-default, idempotent seed migration in `apps/api/prisma/schema.prisma` and `apps/api/prisma/migrations/20260812000100_add_referral_feature_state/migration.sql`
+- [X] T002 Add PostgreSQL migration assertions for seeded enabled state, constraints, restart persistence, and unchanged referral/wallet row counts in `apps/api/test/referral-migration.integration-spec.ts`
+- [X] T003 [P] Replace `REFERRAL_WELCOME_BONUS_ML` with validated `REFERRAL_OPERATIONS_TOKEN` configuration while retaining `REFERRAL_INVITER_BONUS_ML` in `apps/api/src/config/env.ts`, `apps/api/src/config/env.referral.spec.ts`, and `apps/api/.env.example`
+- [X] T004 [P] Add fixture helpers for reading, resetting, and locking the singleton feature row through independent Prisma clients in `apps/api/test/referral-postgres.fixture.ts`
 
-**Checkpoint**: Domain rules and configuration are executable without a
-database, and application boundaries contain no Prisma or transport types.
+**Checkpoint**: The expand migration is deployable first, seeds existing
+installations as enabled, and does not alter accounting facts.
 
----
-
-## Phase 2: Prisma Migration And Existing-User Provisioning
-
-**Purpose**: Add database-enforced referral invariants and a safe way to issue
-codes to existing users without retroactive bonuses.
-
-**Critical**: Complete this phase before repository or bonus delivery work.
-
-- [X] T011 [P] Add a shared disposable-schema PostgreSQL harness and an opt-in migration suite for fresh databases, feature-002 upgrades, feature-004 upgrades with existing users, required constraints/indexes/triggers, failed-migration transaction atomicity, and forbidden mutations in `apps/api/test/referral-postgres.fixture.ts` and `apps/api/test/referral-migration.integration-spec.ts`; depends on T008 and T010; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-migration.integration-spec.ts`; done when the shared harness creates and always cleans isolated schemas, the suite skips without the flag, and it fails against PostgreSQL until the reviewed migration exists; services: real PostgreSQL 17 with disposable schemas.
-- [X] T012 Add `ReferralPromoCode`, `ReferralEligibility`, `ReferralRelationship`, and `ReferralBonusEntitlement` models, referral-bounded enums, relations, monotonic bigint sequence fields, a database-generated `ReferralRelationship.appliedAt` using Prisma `@default(now())`, and string snapshot fields that persist the wallet operation literals `REFERRAL_WELCOME_BONUS`/`REFERRAL_INVITER_BONUS` and source literal `REFERRAL_PROGRAM` to `apps/api/prisma/schema.prisma`; depends on T008 and T011; validate with `pnpm --filter @kaynann/api exec prisma format --schema prisma/schema.prisma`; done when portable uniqueness and relations are represented, `appliedAt` is omitted by relationship-create callers and generated by the database, wallet operation/source values remain extensible captured strings rather than new Prisma enums, and no codes or bonuses are generated in the schema; services: none.
-- [X] T013 Create reviewed SQL in `apps/api/prisma/migrations/20260806000100_add_referral_program/migration.sql` for tables/enums/sequences, a PostgreSQL `DEFAULT` for relationship `appliedAt`, unique and CHECK constraints, safe `RESTRICT` foreign keys, `(inviterUserId, sequence DESC)` index, one-welcome partial unique index, one-inviter-entitlement uniqueness, self-referral rejection, delivery/lease consistency, eligibility transitions, and immutable promo/relationship/entitlement-fact triggers; depends on T012; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-migration.integration-spec.ts`; done when the reviewed SQL applies to disposable PostgreSQL through the T011 suite, inserts that omit `appliedAt` receive the database timestamp, and the migration contains no random code generation, relationship creation, entitlement creation, wallet operation, or retroactive bonus; services: real PostgreSQL 17 with disposable schemas.
-- [X] T014 Extend `apps/api/test/referral-migration.integration-spec.ts` with named assertions for database-default relationship `appliedAt`, promo and relationship `UPDATE`/`DELETE` rejection, entitlement immutable facts, allowed delivery-state transitions, eligibility transition protection, constraint SQLSTATEs, transactional rollback of a fault-injected failed migration, and expected query indexes; depends on T013; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-migration.integration-spec.ts`; done when a direct insert that omits `appliedAt` persists a database-generated value and PostgreSQL itself rejects every forbidden mutation and partial write; services: real PostgreSQL 17 with disposable schemas.
-- [X] T015 Generate the package-managed Prisma client and validate schema compatibility for `apps/api/prisma/schema.prisma`; depends on T013; validate with `pnpm --filter @kaynann/api exec prisma validate --schema prisma/schema.prisma && pnpm db:generate && pnpm --filter @kaynann/api typecheck`; done when generated types compile and no generated artifact is manually edited; services: configured local environment, no database connection required for generation.
-- [X] T016 [P] Add unit tests for bounded UUID-keyset batches, dry-run behavior, structured counters, collision retry, safe rerun, and no entitlement/wallet calls in `apps/api/src/referral/application/referral-provisioning.service.spec.ts`; depends on T008 and T010; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-provisioning.service.spec.ts`; done when the service contract distinguishes scanned, created, already-present, collision, and failure counts; services: none.
-- [X] T017 Implement bounded keyset provisioning orchestration and lazy-provisioning contract in `apps/api/src/referral/application/referral-provisioning.service.ts`; depends on T008 and T016; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-provisioning.service.spec.ts`; done when dry run performs no writes and neither mode creates welcome entitlements, relationships, or wallet operations; services: none.
-- [X] T018 Add transactional existing-user promo/eligibility provisioning with collision retry and lazy repair in `apps/api/src/referral/infrastructure/postgres/referral-promo-provisioner.ts` and its real-database tests in `apps/api/test/referral-provisioning.integration-spec.ts`; depends on T015 and T017; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-provisioning.integration-spec.ts`; done when repeated and concurrent runs converge on one stable code and OPEN eligibility per user without bonus side effects; services: real PostgreSQL 17 with disposable schemas.
-- [X] T019 Add the `--dry-run` capable CLI composition in `apps/api/src/referral/cli/provision-referrals.ts`; depends on T018; validate with `pnpm --filter @kaynann/api typecheck`; done when the CLI uses the application service, emits structured counters, has bounded batch configuration, and exposes no balance mutation; services: PostgreSQL only when executed.
-- [X] T020 Add the planned `referral:provision` and opt-in `test:referral:postgres` scripts to `apps/api/package.json`; depends on T019; validate with `pnpm --filter @kaynann/api referral:provision -- --help && node -e "const s=require('./apps/api/package.json').scripts; if (!s['test:referral:postgres']) process.exit(1); console.log(s['test:referral:postgres'])"`; done when dry-run/write provisioning is reachable, the PostgreSQL script targets only referral database suites and remains opt-in, and default tests or dependency versions are unchanged; services: none for inspection/help, PostgreSQL for actual provisioning or integration tests.
-- [X] T021 Validate migration application and failed-migration transaction atomicity on empty, feature-002, and feature-004 database states through `apps/api/test/referral-migration.integration-spec.ts`; depends on T014, T015, and T018; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-migration.integration-spec.ts`; done when prior auth/wallet data survives upgrades and the fix-forward limitation after successful deployment is recorded by executable assertions and test documentation; services: real PostgreSQL 17 with disposable schemas.
-- [X] T022 Validate provisioning dry run, actual run, and safe rerun through `apps/api/test/referral-provisioning.integration-spec.ts`; depends on T020 and T021; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-provisioning.integration-spec.ts`; done when every existing user has one stable promo/eligibility row and has no retroactive welcome entitlement or referral wallet entry; services: real PostgreSQL 17 with disposable schemas.
-
-**Checkpoint**: Reviewed migrations enforce immutable referral facts, and
-existing users can receive stable codes without any water credit.
+**Minimal validation**: Run `pnpm db:generate`,
+`pnpm --filter @kaynann/api typecheck`, and, when the PostgreSQL acceptance
+environment is available,
+`RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api exec vitest run test/referral-migration.integration-spec.ts`.
 
 ---
 
-## Phase 3: Referral Repository, Concurrency, And Immutable Relationships
+## Phase 2: Foundational - Persistent Feature State Boundary
 
-**Purpose**: Implement PostgreSQL-backed application behavior and prove the
-commit-order concurrency model before bonus delivery.
+**Purpose**: Provide one server-authoritative availability boundary shared by
+registration, public reads, operations, recovery, and the wallet guard.
 
-- [X] T023 [P] Add failing unit tests for versioned opaque cursor encode/decode, malformed input, exclusive bigint sequence boundaries, newest-first ordering, default 20, maximum 100, and `limit + 1` slicing in `apps/api/src/referral/infrastructure/postgres/referral-cursor.spec.ts`; depends on T022; validate with `pnpm --filter @kaynann/api test -- src/referral/infrastructure/postgres/referral-cursor.spec.ts`; done when timestamps are explicitly excluded from cursor identity; services: none.
-- [X] T024 [P] Add real-PostgreSQL repository tests for transactional promo provisioning, canonical lookup, unknown/self/suspended-owner/already-attached/closed outcomes, registration and post-registration channels, database-assigned relationship `appliedAt`, persisted-timestamp replay, one relationship per invitee, one complete inviter-entitlement fact snapshot per relationship, post-attachment suspension immutability, fault-injected entitlement insertion failure, summary, owner isolation, and 250-item traversal in `apps/api/test/referral-repository.integration-spec.ts`; depends on T022; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-repository.integration-spec.ts`; done when callers cannot provide `appliedAt`, same-code replay returns `ALREADY_ATTACHED` with the persisted value, a suspended owner's code cannot create a new attachment, suspension does not alter an existing relationship, a failed inviter-entitlement insert leaves no relationship or eligibility transition, all other tests fail until infrastructure behavior exists, and every case uses a disposable schema; services: real PostgreSQL 17.
-- [X] T025 [P] Add real-PostgreSQL concurrency tests for at least 100 same-code attempts, at least 100 competing-code attempts, concurrent invitees of one inviter, repeated eligibility close, and apply-vs-close commit ordering in `apps/api/test/referral-concurrency.integration-spec.ts`; depends on T022; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-concurrency.integration-spec.ts`; done when tests require row locks and database constraints rather than in-process serialization; services: real PostgreSQL 17.
-- [X] T026 Implement versioned opaque sequence cursors and limit validation in `apps/api/src/referral/infrastructure/postgres/referral-cursor.ts`; depends on T023; validate with `pnpm --filter @kaynann/api test -- src/referral/infrastructure/postgres/referral-cursor.spec.ts`; done when decoding accepts only the documented version and exclusive bigint boundary; services: none.
-- [X] T027 Implement `PrismaReferralRepository` provisioning, canonical lookup, active-owner validation for new attachments, eligibility-row locking, database-assigned relationship `appliedAt`, relationship plus caller-provided complete inviter-entitlement fact snapshot persistence, stable replay outcomes, and Prisma transaction-context support in `apps/api/src/referral/infrastructure/postgres/prisma-referral.repository.ts`; depends on T024 and T026; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-repository.integration-spec.ts`; done when Prisma remains confined to infrastructure, callers cannot supply `appliedAt`, same-code retry returns `ALREADY_ATTACHED` with the persisted timestamp and original relationship after owner suspension, a suspended owner's code is unavailable for new attachment, and a different code returns a stable conflict; services: real PostgreSQL 17.
-- [X] T028 Implement application commands for registration/post-registration attachment, safe invalid-or-unknown mapping, self-referral, and closed eligibility in `apps/api/src/referral/application/referral-application.service.ts`; depends on T027; validate with `pnpm --filter @kaynann/api typecheck`; done when the service accepts trusted user identity, never accepts caller-selected inviter/invitee IDs or relationship timestamps, constructs the validated inviter-entitlement fact snapshot from configuration and referral constants, and delegates atomic facts plus database-assigned `appliedAt` to the repository; services: none.
-- [X] T029 Implement future purchase `closeEligibility` using stable purchase business-event identity and the same locked eligibility row in `apps/api/src/referral/composition/close-referral-eligibility.ts` and tests in `apps/api/src/referral/application/referral-eligibility.service.spec.ts`; depends on T025 and T027; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-eligibility.service.spec.ts`; done when the internal-only command is idempotent and failed/cancelled/incomplete purchases have no contract path to close eligibility; services: none for unit tests.
-- [X] T030 Implement owner-scoped promo/summary and deterministic invitation queries in `apps/api/src/referral/application/referral-query.service.ts` and `apps/api/src/referral/infrastructure/postgres/prisma-referral.repository.ts`; depends on T026 and T027; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-repository.integration-spec.ts`; done when summary and history include only successfully delivered inviter credits, history orders by sequence DESC, and 250 entries traverse without gaps, duplicates, or cross-user data; services: real PostgreSQL 17.
-- [X] T031 Complete 100-way same-code, competing-code, concurrent-invitee, and apply-vs-close tests in `apps/api/test/referral-concurrency.integration-spec.ts`; depends on T028 and T029; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-concurrency.integration-spec.ts`; done when exactly one relationship wins per invitee, commit order deterministically decides apply versus close, and no duplicate inviter entitlement exists; services: real PostgreSQL 17.
-- [X] T032 Complete immutable promo/relationship and entitlement-fact mutation assertions in `apps/api/test/referral-repository.integration-spec.ts`; depends on T027 and T030; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-repository.integration-spec.ts -t "immutable|update|delete"`; done when application and direct SQL cannot replace or delete confirmed referral facts; services: real PostgreSQL 17.
-- [X] T033 Register repository/application providers behind a new module boundary in `apps/api/src/referral/referral.module.ts`; depends on T028, T029, T030, and T032; validate with `pnpm --filter @kaynann/api typecheck`; done when other modules can consume only exported application/integration contracts and never the Prisma repository directly; services: none.
+**CRITICAL**: Complete this phase before any user-story implementation.
 
-**Checkpoint**: Relationship creation, eligibility locking, pagination, and
-isolation are database-backed and concurrency-safe before wallet delivery is
-introduced.
+- [X] T005 Define typed read, shared-lock assertion, and idempotent exclusive-update ports for `REFERRAL_PROGRAM` in `apps/api/src/referral/application/ports/referral-feature-state.repository.ts`
+- [X] T006 [P] Add service unit tests for enabled/disabled reads, same-value updates, revision transitions, and fail-closed storage errors in `apps/api/src/referral/application/referral-feature-state.service.spec.ts`
+- [X] T007 [P] Add PostgreSQL tests using independent Prisma clients for shared/exclusive lock ordering, idempotent updates, revision monotonicity, and multi-instance visibility in `apps/api/test/referral-feature-state.integration-spec.ts`
+- [X] T008 Implement the feature-state application service without an authoritative in-memory cache in `apps/api/src/referral/application/referral-feature-state.service.ts`
+- [X] T009 Implement the Prisma repository and transactional lock operations in `apps/api/src/referral/infrastructure/postgres/prisma-referral-feature-state.repository.ts`
+- [X] T010 Register the feature-state port, repository, and service for shared use in `apps/api/src/referral/referral.module.ts`
 
----
+**Checkpoint**: All API instances obtain availability from the same persistent
+row, and storage failure cannot silently enable referral effects.
 
-## Phase 4: Bonus Entitlements, Wallet Delivery, And Recovery
-
-**Purpose**: Guarantee durable bonus obligations and exactly-one wallet effects
-through idempotent delivery and PostgreSQL leases.
-
-- [X] T034 [P] Add unit tests for delivery of stored welcome and inviter entitlement facts, no invitee referral entitlement delivery, amount snapshotting, stable `referral_bonus:<entitlement-uuid>` keys, and preserved `occurredAt` in `apps/api/src/referral/application/referral-bonus-delivery.service.spec.ts`; depends on T033; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-bonus-delivery.service.spec.ts`; done when test doubles expose any direct wallet-repository access, regenerated event timestamp, or attempt to recreate an existing inviter entitlement; services: none.
-- [X] T035 [P] Add real-PostgreSQL recovery tests for `FOR UPDATE SKIP LOCKED`, batch 25, 30-second leases, owner-conditional completion, expired lease reclaim, concurrent workers, transient backoff, permanent conflict, process interruption after wallet credit, rollback, and exactly-one ledger effect in `apps/api/test/referral-recovery.integration-spec.ts`; depends on T033; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-recovery.integration-spec.ts`; done when tests fail until leased recovery exists and use the real wallet ledger; services: real PostgreSQL 17.
-- [X] T036 Extend wallet domain mappings and tests for `REFERRAL_WELCOME_BONUS`, `REFERRAL_INVITER_BONUS`, and `REFERRAL_PROGRAM` in `apps/api/src/wallet/domain/wallet-operation.ts` and `apps/api/src/wallet/domain/wallet-operation.spec.ts`; depends on T012; validate with `pnpm --filter @kaynann/api test -- src/wallet/domain/wallet-operation.spec.ts`; done when both credits remain normal immutable wallet operations and no referral-specific balance path is added; services: none.
-- [X] T037 Implement welcome entitlement creation, amount snapshotting, and explicit reuse of Phase 3 inviter-entitlement facts in `apps/api/src/referral/application/referral-application.service.ts` and `apps/api/src/referral/infrastructure/postgres/prisma-referral.repository.ts`; depends on T034 and T036; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-repository.integration-spec.ts -t "entitlement|welcome|inviter"`; done when welcome applies only to genuinely new users, inviter credit belongs only to the inviter, the inviter entitlement is not recreated during delivery, and configuration changes affect only later entitlements; services: real PostgreSQL 17.
-- [X] T038 Implement bounded post-commit delivery through `WalletCommandService.credit` only in `apps/api/src/referral/application/referral-bonus-delivery.service.ts`; depends on T034, T036, and T037; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-bonus-delivery.service.spec.ts`; done when the stored amount, `occurredAt`, and stable business key are reused on every retry and referral code never imports wallet Prisma models; services: none for unit tests.
-- [X] T039 Implement due-entitlement claim, lease owner/expiry, `SKIP LOCKED`, conditional completion, expired reclaim, retry metadata, and reconciliation reads in `apps/api/src/referral/infrastructure/postgres/prisma-referral.repository.ts`; depends on T035 and T038; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-recovery.integration-spec.ts -t "claim|lease|reclaim|reconcile"`; done when multiple instances cannot complete another worker's lease and a credited ledger entry can reconcile an interrupted entitlement; services: real PostgreSQL 17.
-- [X] T040 Add failing unit tests for backoff bounds, transient/permanent classification, stale leases, reconciliation, and structured counters in `apps/api/src/referral/application/referral-recovery.service.spec.ts`; depends on T039; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-recovery.service.spec.ts`; done when deterministic clock/random seams encode every required state transition and fail only because the recovery service is not implemented; services: none.
-- [X] T041 Implement recovery classification and bounded exponential backoff with jitter from 1 second to 5 minutes in `apps/api/src/referral/application/referral-recovery.service.ts`; depends on T040; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-recovery.service.spec.ts`; done when transient failures remain recoverable without finite discard, permanent wallet conflicts are terminal and visible, stale leases reconcile safely, structured counters are emitted, and retries cannot duplicate credit; services: none for unit tests.
-- [X] T042 Add a one-second Nest schedule with in-process overlap protection and shutdown-safe disposal in `apps/api/src/referral/composition/referral-recovery.scheduler.ts`; depends on T041; validate with `pnpm --filter @kaynann/api typecheck`; done when only one tick runs per process while PostgreSQL leases preserve multi-instance safety; services: none for typecheck.
-- [X] T043 Add structured delivery/recovery logs and metrics counters without promo codes, phones, business keys, or private IDs in `apps/api/src/referral/application/referral-bonus-delivery.service.ts` and `apps/api/src/referral/application/referral-recovery.service.ts`; depends on T038 and T041; validate with `pnpm --filter @kaynann/api test -- src/referral/application/referral-bonus-delivery.service.spec.ts src/referral/application/referral-recovery.service.spec.ts`; done when claimed, delivered, replayed, retried, permanent-failure, stale-lease, and remaining-due outcomes are observable but privacy-safe; services: none.
-- [X] T044 Add the one-shot operational recovery composition in `apps/api/src/referral/cli/recover-referral-bonuses.ts`; depends on T041 and T043; validate with `pnpm --filter @kaynann/api typecheck`; done when the command invokes the same claim/delivery service and cannot directly edit a wallet balance; services: PostgreSQL only when executed.
-- [X] T045 Add the planned `referral:recover` script to `apps/api/package.json`; depends on T044 and T020; validate with `pnpm --filter @kaynann/api referral:recover -- --help`; done when the safe one-shot command is reachable without changing dependency versions; services: none for help, PostgreSQL for execution.
-- [X] T046 Wire schedule, delivery, recovery, wallet application boundary, and lifecycle providers in `apps/api/src/referral/referral.module.ts` and `apps/api/src/app.module.ts`; depends on T042, T043, and T045; validate with `pnpm --filter @kaynann/api typecheck && pnpm --filter @kaynann/api test -- src/referral/application/referral-bonus-delivery.service.spec.ts src/referral/application/referral-recovery.service.spec.ts && RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-recovery.integration-spec.ts`; done when Nest resolves all providers, startup configuration is validated, the full real-PostgreSQL recovery suite is green, and no Redis queue, broker, or public recovery endpoint exists; services: real PostgreSQL 17 for the recovery integration suite.
-
-**Checkpoint**: Every bonus is a durable entitlement, delivery is recoverable,
-and the wallet ledger receives at most one effect per entitlement.
+**Minimal validation**: Run
+`pnpm --filter @kaynann/api test -- src/referral/application/referral-feature-state.service.spec.ts`
+after the service diff, then
+`pnpm --filter @kaynann/api test:referral:postgres -- test/referral-feature-state.integration-spec.ts`
+when the PostgreSQL acceptance environment is available.
 
 ---
 
-## Phase 5: User Story 1 - Registration Completion Integration (Priority: P1)
+## Phase 3: User Story 1 - Apply A Promo Code During Registration (Priority: P1) MVP
 
-**Goal**: Complete registration only after OTP/legal eligibility, grant one
-welcome entitlement to each genuinely new user, and optionally attach one
-inviter with one inviter entitlement.
+**Goal**: Complete registration with optional pending promo context, creating
+one relationship and one inviter bonus only for a valid code while enabled.
+Remove welcome, invitee, post-registration apply, and purchase-eligibility
+behavior from the active implementation.
 
-**Independent Test**: With real PostgreSQL and Redis, complete new registrations
-with and without a promo, retry and race completion, interrupt after commit, and
-observe exactly one 10,000 ml welcome credit per new user, one 5,000 ml inviter
-credit only for the referred case, unchanged session credentials, and recovery
-after interruption.
+**Independent Test**: Complete no-code, valid, invalid, unavailable, and self
+registrations after OTP and legal acceptance; replace/remove pending context;
+retry and race completion; verify only the valid enabled case creates one
+`REGISTRATION` relationship, one `INVITER` entitlement, and one inviter wallet
+credit, with no invitee or welcome credit.
 
-### Tests First
+### Tests For User Story 1
 
-- [X] T047 [P] [US1] Add registration pre-validation tests for valid, invalid, unknown, overlong, removable, and replaceable pending promo context before `beginCompletion` in `apps/api/src/auth/application/registration.service.spec.ts`; depends on T046; validate with `pnpm --filter @kaynann/api test -- src/auth/application/registration.service.spec.ts -t "promo|referral"`; done when failed validation consumes neither Redis authorization nor the user's ability to edit/remove the pending code; services: mocked ports only.
-- [X] T048 [P] [US1] Add opt-in PostgreSQL+Redis tests for no effects before OTP/legal, registration without promo, registration with promo, self/unknown/suspended-owner promo, exact 10000/5000 values, no invitee referral bonus, repeated/concurrent completion, existing-user replay, unchanged credentials, and fault-injected referral-onboarding failure in `apps/api/test/referral-registration.integration-spec.ts`; depends on T046; validate with `RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-registration.integration-spec.ts`; done when the suite skips by default, fails until integration is wired, suspended-owner promo is indistinguishable from unavailable promo, and an onboarding failure leaves no partially committed user, legal, session, relationship, eligibility, or entitlement facts; services: real PostgreSQL 17 and Redis with isolated keys/schemas.
+- [X] T011 [P] [US1] Rewrite onboarding unit tests for no-code, valid, invalid, self, disabled, welcome-free, and invitee-credit-free outcomes in `apps/api/src/auth/application/registration.service.spec.ts` and `apps/api/src/referral/application/referral-provisioning.service.spec.ts`
+- [X] T012 [P] [US1] Rewrite PostgreSQL registration acceptance tests for OTP/legal ordering, final pending-code selection, one inviter entitlement, zero registering-user referral operations, and an immutable configured-amount snapshot that is unchanged by later configuration changes in `apps/api/test/referral-registration.integration-spec.ts`
+- [X] T013 [P] [US1] Add at least 100 replay and concurrent completion attempts, including competing valid codes, proving one immutable inviter relationship and at most one inviter credit in `apps/api/test/referral-concurrency.integration-spec.ts` and `apps/api/src/auth/application/registration-concurrency.integration-spec.ts`
+- [X] T014 [P] [US1] Remove the post-registration operation and eligibility/application schemas from `specs/005-referral-program/contracts/openapi.yaml`, then update registration HTTP contract tests to preserve auth/session responses while proving the removed route is absent in `apps/api/test/registration-http.contract-spec.ts` and `apps/api/test/referral-http.contract-spec.ts`
+- [X] T015 [P] [US1] Rewrite delivery tests so only `INVITER` entitlements can reach the wallet, entitlement amount remains the immutable creation-time snapshot, and legacy `WELCOME` rows remain inert in `apps/api/src/referral/application/referral-bonus-delivery.service.spec.ts`
 
-### Implementation
+### Implementation For User Story 1
 
-- [X] T049 [US1] Implement the transaction-aware onboarding adapter that provisions the new user's promo/eligibility, snapshots the welcome entitlement, validates pending promo authoritatively, and optionally creates relationship/inviter entitlement in `apps/api/src/referral/application/referral-registration.integration.ts`; depends on T047 and T048; validate with `pnpm --filter @kaynann/api typecheck`; done when it accepts the existing Prisma transaction context and never creates a session or calls wallet delivery inside the transaction; services: none for typecheck.
-- [X] T050 [US1] Add non-consuming pending-promo pre-validation before `beginCompletion` and authoritative referral onboarding inside the existing serializable transaction in `apps/api/src/auth/application/registration.service.ts`; depends on T049; validate with `pnpm --filter @kaynann/api test -- src/auth/application/registration.service.spec.ts -t "promo|referral|completion"`; done when invalid/unknown promo is safely rejected before Redis consumption while the transaction remains authoritative against races; services: mocked ports for unit tests.
-- [X] T051 [US1] Wire the referral onboarding port into existing auth composition without changing request/response, OTP, legal, SMS, or session contracts in `apps/api/src/auth/auth.module.ts` and `apps/api/src/referral/referral.module.ts`; depends on T050; validate with `pnpm --filter @kaynann/api typecheck`; done when Nest resolves the circular integration through exported application boundaries rather than Prisma access; services: none.
-- [X] T052 [US1] Trigger bounded inline delivery only after successful registration commit while leaving durable recovery authoritative in `apps/api/src/auth/application/registration.service.ts` and `apps/api/src/referral/application/referral-registration.integration.ts`; depends on T051; validate with `pnpm --filter @kaynann/api test -- src/auth/application/registration.service.spec.ts -t "delivery|completion"`; done when a delivery timeout cannot roll back OTP/legal/session completion or lose the entitlement; services: mocked ports for unit tests.
-- [X] T053 [US1] Complete real PostgreSQL+Redis happy-path and rejection coverage in `apps/api/test/referral-registration.integration-spec.ts`; depends on T052; validate with `RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-registration.integration-spec.ts -t "without promo|with promo|unknown|self|legal|OTP"`; done when no referral effect exists before OTP/legal and exact credits/relationships appear only after completion; services: real PostgreSQL 17 and Redis.
-- [X] T054 [US1] Add 100 repeated completion attempts, concurrent completion, caller-timeout replay, and process-crash-after-commit recovery cases in `apps/api/test/referral-registration.integration-spec.ts`; depends on T053; validate with `RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 pnpm --filter @kaynann/api test -- test/referral-registration.integration-spec.ts -t "repeat|concurrent|crash|recovery"`; done when one user/session result, one welcome entitlement, at most one relationship, one inviter entitlement, and exactly-one wallet effect remain; services: real PostgreSQL 17 and Redis.
-- [X] T055 [P] [US1] Extend auth/session/legal regression coverage for unchanged registration response and credential behavior in the existing `apps/api/test/registration-http.contract-spec.ts`, `apps/api/test/session-http.contract-spec.ts`, `apps/api/test/phone-auth.integration-spec.ts`, `apps/api/src/legal/application/legal.service.spec.ts`, and `apps/api/src/sessions/application/session-credentials.spec.ts`; depends on T052; validate with `pnpm --filter @kaynann/api test -- test/registration-http.contract-spec.ts test/session-http.contract-spec.ts test/phone-auth.integration-spec.ts src/legal/application/legal.service.spec.ts src/sessions/application/session-credentials.spec.ts`; done when feature-002 public contracts and session lifecycle remain byte-for-byte compatible without creating duplicate regression suites; services: default hermetic test doubles.
-- [X] T056 [US1] Add the opt-in `test:referral:registration` script to `apps/api/package.json` and validate the complete registration story across unit, PostgreSQL+Redis, auth regression, and wallet-ledger assertions in `apps/api/src/auth/application/registration.service.spec.ts` and `apps/api/test/referral-registration.integration-spec.ts`; depends on T054 and T055; validate with `pnpm --filter @kaynann/api test -- src/auth/application/registration.service.spec.ts test/registration-http.contract-spec.ts test/session-http.contract-spec.ts test/phone-auth.integration-spec.ts src/legal/application/legal.service.spec.ts src/sessions/application/session-credentials.spec.ts && RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:registration`; done when the script targets only the PostgreSQL+Redis registration suite, remains opt-in, US1's independent test passes, and no retroactive bonus is created for an existing user; services: real PostgreSQL 17 and Redis for the opt-in half.
+- [X] T016 [US1] Replace the onboarding boundary with registration-completion input/result semantics and remove post-registration command types in `apps/api/src/referral/application/referral-registration.integration.ts`
+- [X] T017 [US1] Refactor the Prisma registration integration to lock availability in the registration transaction, provision a stable user code, and atomically create only `REGISTRATION`/`INVITER` facts in `apps/api/src/referral/infrastructure/postgres/prisma-referral-registration.integration.ts`
+- [X] T018 [US1] Invoke referral completion only after OTP, current legal acceptance, and successful registration finalization while consuming the final pending promo context in `apps/api/src/auth/application/registration.service.ts`
+- [X] T019 [US1] Restrict provisioning to idempotent stable promo-code creation and remove eligibility creation in `apps/api/src/referral/application/referral-provisioning.service.ts` and `apps/api/src/referral/infrastructure/postgres/referral-promo-provisioner.ts`
+- [X] T020 [US1] Remove welcome/invitee entitlement creation and post-registration application methods from `apps/api/src/referral/application/referral-application.service.ts`
+- [X] T021 [US1] Restrict delivery constants and logic to inviter obligations without modifying historical delivered wallet operations in `apps/api/src/referral/application/referral-bonus-delivery.service.ts` and `apps/api/src/referral/domain/referral-types.ts`
+- [X] T022 [US1] Remove eligibility, welcome, post-registration application, and attached-code operations from the repository port and Prisma repository while retaining historical enum/channel reads in `apps/api/src/referral/application/ports/referral.repository.ts` and `apps/api/src/referral/infrastructure/postgres/prisma-referral.repository.ts`
+- [X] T023 [US1] Delete the active eligibility service and purchase-close boundary files `apps/api/src/referral/application/referral-eligibility.service.ts`, `apps/api/src/referral/application/referral-eligibility.service.spec.ts`, and `apps/api/src/referral/composition/close-referral-eligibility.ts`
+- [X] T024 [US1] Remove application request DTOs, eligibility/attached-code response fields, and stale application error mappings in `apps/api/src/referral/http/dto/referral-request.dto.ts`, `apps/api/src/referral/http/dto/referral-response.dto.ts`, `apps/api/src/referral/http/referral-response.mapper.ts`, `apps/api/src/referral/http/referral-response.mapper.spec.ts`, `apps/api/src/referral/http/referral-error.filter.ts`, and `apps/api/src/referral/domain/referral-errors.ts`
+- [X] T025 [US1] Remove `POST /v1/referrals/applications` and its injected application service from `apps/api/src/referral/http/referral.controller.ts`
+- [X] T026 [US1] Remove eligibility/application providers and purchase-close exports while retaining registration, query, recovery, and provisioning composition in `apps/api/src/referral/referral.module.ts` and `apps/api/src/referral/referral.module.spec.ts`
 
-**Checkpoint**: US1 is independently demonstrable and preserves the completed
-phone-auth/session behavior.
+**Checkpoint**: US1 is independently usable as the MVP. Registration is the
+only referral-application point and never rewards the registering user.
 
----
-
-## Phase 6: Authenticated Referral API And OpenAPI
-
-**Purpose**: Expose the minimal guarded read/apply surface with explicit DTOs,
-privacy-safe shaping, and aggregate OpenAPI evidence.
-
-### User Story 2 - Apply A Promo Code After Registration (Priority: P1)
-
-**Independent Test**: As an eligible authenticated user, apply a valid code,
-replay it, submit a conflicting/self/unknown code, close eligibility through the
-internal boundary, and observe one relationship and one inviter wallet credit.
-
-- [X] T057 [US2] Add HTTP contract tests for guarded `POST /v1/referrals/applications`, canonical input, first apply returning `ATTACHED`, same-code replay returning `ALREADY_ATTACHED` with the identical persisted database-assigned `appliedAt`, different-code conflict, self/invalid/unknown/suspended-owner/closed errors, a fault-injected retryable dependency failure mapped to `503 REFERRAL_SERVICE_UNAVAILABLE`, `Cache-Control: no-store`, and absence of caller-selected user IDs in `apps/api/test/referral-http.contract-spec.ts`; depends on T056; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts -t "applications"`; done when the first successful apply and its same-code replay return different public statuses but the same `appliedAt`, invalid, unknown, and suspended-owner codes share the safe unavailable response, the retryable response exposes no private or infrastructure details, tests require stable public statuses/errors, and they prohibit `Idempotency-Key` and internal fields; services: default hermetic test doubles.
-
-### User Story 3 - Share My Referral Code (Priority: P2)
-
-**Independent Test**: Authenticate as an existing user twice across sessions and
-observe the same code and API-provided `kaynann://register?promo=...` link with no
-private/internal fields.
-
-- [X] T058 [US3] Add HTTP contract tests for guarded `GET /v1/referrals/me`, lazy provisioning safety, exact millilitre strings, stable code/link, public application state, `creditedInvitationCount` derived only from delivered inviter entitlements, and `Cache-Control: no-store` in `apps/api/test/referral-http.contract-spec.ts`; depends on T057; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts -t "referrals/me"`; done when another user's identifiers, phone, entitlement states, and business keys cannot appear; services: default hermetic test doubles.
-
-### User Story 4 - Review Referral Results (Priority: P2)
-
-**Independent Test**: Fetch an empty history and then traverse more than 250
-invitations using opaque cursors, observing exact credited totals, newest-first
-order, `**NN` labels, and strict owner isolation.
-
-- [X] T059 [US4] Add HTTP contract tests for guarded `GET /v1/referrals/invitations`, delivered-entitlement filtering, public `CREDITED` status, `appliedAt` equal to the stable database-assigned value persisted with the relationship, default limit 20, maximum 100, opaque malformed cursors, next cursor, newest-first order, exact millilitre strings, `**NN` masking, isolation, and `Cache-Control: no-store` in `apps/api/test/referral-http.contract-spec.ts`; depends on T058; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts -t "invitations|cursor|history"`; done when the history returns the persisted relationship timestamp and exposes only the approved stable relationship UUID as `Invitation.id`, while user IDs, entitlement IDs, raw sequence, full phones, wallet keys, and recovery fields are absent; services: default hermetic test doubles.
-
-### Shared HTTP Implementation
-
-- [X] T060 Define explicit apply/query request DTOs, public response/error models, dedicated response shaping, and retryable service-failure mapping to `503 REFERRAL_SERVICE_UNAVAILABLE` in `apps/api/src/referral/http/dto/referral-request.dto.ts`, `apps/api/src/referral/http/dto/referral-response.dto.ts`, `apps/api/src/referral/http/referral-response.mapper.ts`, `apps/api/src/referral/http/referral-response.mapper.spec.ts`, and `apps/api/src/referral/http/referral-error.filter.ts`; depends on T057, T058, and T059; validate with `pnpm --filter @kaynann/api test -- src/referral/http/referral-response.mapper.spec.ts && pnpm --filter @kaynann/api typecheck`; done when limits and promo length are boundary-validated, amounts are decimal strings, retryable infrastructure details are replaced by the stable public 503 response, controllers delegate shaping to the mapper, and Prisma/lease/business-key fields are structurally unrepresentable; services: none.
-- [X] T061 [US2] Implement the thin `POST /v1/referrals/applications` handler using `AccessSessionGuard` and session-derived identity in `apps/api/src/referral/http/referral.controller.ts`; depends on T060; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts -t "applications"`; done when no caller-selected user ID or public eligibility-close/bonus call exists and same-code natural idempotency needs no `Idempotency-Key`; services: default hermetic test doubles.
-- [X] T062 [US3] Implement the thin `GET /v1/referrals/me` handler and stable API-provided referral link shaping in `apps/api/src/referral/http/referral.controller.ts`; depends on T061; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts -t "referrals/me"`; done when AccessSessionGuard owns identity and repeated reads return the same canonical code; services: default hermetic test doubles.
-- [X] T063 [US4] Implement the thin `GET /v1/referrals/invitations` handler with owner-scoped cursor pagination in `apps/api/src/referral/http/referral.controller.ts`; depends on T062; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts -t "invitations|cursor|history"`; done when default/max limits and privacy-safe response shaping match the source contract; services: default hermetic test doubles.
-- [X] T064 Register controller, guard imports, services, and no-store behavior in `apps/api/src/referral/referral.module.ts`; depends on T061, T062, and T063; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts && pnpm --filter @kaynann/api typecheck`; done when all three routes resolve and every authenticated response is non-cacheable; services: none.
-- [X] T065 Reconcile implemented operations and DTO schemas with the source contract in `specs/005-referral-program/contracts/openapi.yaml`; depends on T064; validate with `pnpm --filter @kaynann/api openapi:generate`; done when the contract matches implementation without adding bonus, recovery, provisioning, eligibility-close, inviter-replacement, relationship-delete, or wallet-write endpoints; services: none.
-- [X] T066 Retarget aggregate generation from feature 004 to feature 005 while retaining all auth and wallet routes in `apps/api/src/openapi/generate-openapi.ts`, `apps/api/test/openapi.contract-spec.ts`, and `specs/005-referral-program/contracts/openapi.generated.json`; depends on T065; validate with `pnpm --filter @kaynann/api openapi:generate && pnpm --filter @kaynann/api openapi:check`; done when generated evidence matches the source contract and forbidden public write/operational endpoints are absent; services: none.
-- [X] T067 Validate all API stories, cross-user isolation, safe error equivalence, fault-injected `503 REFERRAL_SERVICE_UNAVAILABLE` shaping without private details, no-store headers, forbidden endpoint absence, and generated consistency in `apps/api/test/referral-http.contract-spec.ts` and `apps/api/test/openapi.contract-spec.ts`; depends on T066; validate with `pnpm --filter @kaynann/api test -- test/referral-http.contract-spec.ts test/openapi.contract-spec.ts && pnpm --filter @kaynann/api openapi:check`; done when US2-US4 HTTP independent tests, including the retryable service-failure contract, pass without real service dependencies; services: none.
-
-**Checkpoint**: The authenticated API is complete, read/apply-only, private by
-construction, and represented in the aggregate OpenAPI snapshot.
+**Minimal validation**: Run the changed unit and HTTP contract files with
+`pnpm --filter @kaynann/api test -- src/auth/application/registration.service.spec.ts src/referral/application/referral-provisioning.service.spec.ts src/referral/application/referral-bonus-delivery.service.spec.ts test/registration-http.contract-spec.ts test/referral-http.contract-spec.ts`, then run
+`pnpm --filter @kaynann/api typecheck` and
+`pnpm --filter @kaynann/api test:referral:registration` when PostgreSQL and
+Redis acceptance services are available.
 
 ---
 
-## Phase 7: Mobile API, MobX Store, RxJS Flow, And Deep Links
+## Phase 4: User Story 2 - Control Referral Availability (Priority: P1)
 
-**Purpose**: Build session-scoped reactive data flows before rendering referral
-screens.
+**Goal**: Let authorized operators toggle a persistent runtime flag through
+HTTP, curl, and root package commands; enforce the state across public APIs,
+registration, recovery, and the final wallet-write boundary.
 
-- [X] T068 Install the Expo SDK 54-compatible `expo-clipboard` package with `pnpm --filter @kaynann/mobile exec expo install expo-clipboard`, updating only `apps/mobile/package.json` and `pnpm-lock.yaml`; depends on T067; validate with `pnpm --filter @kaynann/mobile exec expo install --check && pnpm --filter @kaynann/mobile typecheck`; done when Expo dependency validation accepts the resolved version and no `expo-sharing`, router, bottom-tabs, AsyncStorage, or unrelated dependency is added; services: package cache/network only if the compatible package is not already cached.
-- [X] T069 [P] [US2] Add mobile API tests for strict response shaping, canonical apply payload, stable errors, cold Observable execution, AbortController teardown, and no client-supplied user/bonus fields in `apps/mobile/src/api/referral-api.spec.ts`; depends on T068; validate with `pnpm --filter @kaynann/mobile test -- src/api/referral-api.spec.ts`; done when no request starts before subscription and unsubscribe aborts it; services: mocked fetch only.
-- [X] T070 [P] [US1] [US3] Add deep-link coordinator tests for initial URL, subsequent Linking events, signed-out pending registration promo, signed-in prefilled apply state, explicit confirmation, and auth-to-main duplicate suppression in `apps/mobile/src/navigation/referral-link-coordinator.spec.ts`; depends on T068; validate with `pnpm --filter @kaynann/mobile test -- src/navigation/referral-link-coordinator.spec.ts`; done when links never auto-apply and signed-out behavior preserves the existing editable pending promo flow; services: mocked Linking/session only.
-- [X] T071 [US2] [US3] [US4] Implement typed cold `ReferralApi` operations with strict DTO shaping and abort teardown in `apps/mobile/src/api/referral-api.ts`; depends on T069; validate with `pnpm --filter @kaynann/mobile test -- src/api/referral-api.spec.ts`; done when get-me, apply, and invitation requests use only documented API fields and map exact millilitre strings without floating-point arithmetic; services: mocked fetch only.
-- [X] T072 [P] [US2] [US4] Add MobX store tests for initial/loading/loaded/error/apply-success/validation/closed states, serialized load-more, refresh, retry, session epoch, stale-result rejection, and private-state clearing in `apps/mobile/src/referral/stores/referral.store.spec.ts`; depends on T071; validate with `pnpm --filter @kaynann/mobile test -- src/referral/stores/referral.store.spec.ts`; done when tests prove old-session results cannot repopulate the store; services: none.
-- [X] T073 [US2] [US4] Implement `ReferralStore` as the sole referral screen-state owner in `apps/mobile/src/referral/stores/referral.store.ts`; depends on T072; validate with `pnpm --filter @kaynann/mobile test -- src/referral/stores/referral.store.spec.ts`; done when loading, refresh, apply, pagination, errors, attached code, and eligibility state have explicit observable transitions and private data clears atomically; services: none.
-- [X] T074 [P] [US2] [US4] Add disposable RxJS flow tests for initial load, retry, refresh, serialized pagination, login/restoration reload, logout/replacement cancellation, and stale request protection in `apps/mobile/src/referral/services/referral-flow.service.spec.ts`; depends on T071 and T073; validate with `pnpm --filter @kaynann/mobile test -- src/referral/services/referral-flow.service.spec.ts`; done when every subscription is owned and disposal prevents later state publication; services: none.
-- [X] T075 [US2] [US4] Implement `ReferralFlowService` with cold API subscriptions, session-generation guards, cancellation, apply flow, refresh, retry, and pagination in `apps/mobile/src/referral/services/referral-flow.service.ts`; depends on T074; validate with `pnpm --filter @kaynann/mobile test -- src/referral/services/referral-flow.service.spec.ts`; done when logout/session replacement aborts in-flight work and login/restoration reloads current-user data once; services: none.
-- [X] T076 [US3] Implement copy via `expo-clipboard`, system share via React Native `Share`, and testable platform boundaries in `apps/mobile/src/referral/native/referral-native-actions.ts` and `apps/mobile/src/referral/native/referral-native-actions.spec.ts`; depends on T068 and T071; validate with `pnpm --filter @kaynann/mobile test -- src/referral/native/referral-native-actions.spec.ts`; done when copy/share use the API-provided code/link and do not require `expo-sharing`; services: mocked native APIs.
-- [X] T077 [US1] [US3] Implement one app-scoped `ReferralLinkCoordinator` and compose API/store/flow/native actions in `apps/mobile/src/navigation/referral-link-coordinator.ts`, `apps/mobile/src/referral/referral-composition-root.ts`, and `apps/mobile/src/App.tsx`; depends on T070, T075, and T076; validate with `pnpm --filter @kaynann/mobile test -- referral && pnpm --filter @kaynann/mobile typecheck`; done when initial and later links are handled exactly once, signed-out links update pending registration context, signed-in links prefill without applying, and composition disposes on session replacement; services: none.
+**Independent Test**: Toggle through curl and package commands, repeat each
+operation, reject bad credentials/body, restart and use multiple API instances,
+register while disabled, and pause/resume a pending inviter entitlement without
+creating a duplicate credit.
 
-**Checkpoint**: Mobile referral state is cold, cancellable, session-scoped, and
-ready for UI rendering without stale private data.
+### Operational API, Curl, And Package Commands
+
+- [x] T027 [P] [US2] Add strict operational GET/PUT contract tests for authentication, validation, no-store headers, idempotent revision behavior, secret-safe failures, successful enable/disable completion within 30 seconds, and zero state changes from unauthorized attempts in `apps/api/test/referral-feature-operations.contract-spec.ts`
+- [x] T028 [P] [US2] Add unit tests for constant-time bearer-token validation and strict boolean-only DTO input in `apps/api/src/referral/http/referral-operations.guard.spec.ts` and `apps/api/src/referral/http/dto/referral-feature-operation.dto.spec.ts`
+- [x] T029 [US2] Implement the dedicated operations bearer guard without logging or returning credentials in `apps/api/src/referral/http/referral-operations.guard.ts`
+- [x] T030 [P] [US2] Implement strict operational request/response DTO shaping with decimal-string revisions in `apps/api/src/referral/http/dto/referral-feature-operation.dto.ts`
+- [x] T031 [US2] Implement protected, no-store `GET` and idempotent `PUT /internal/feature-flags/referral-program` outside public Swagger in `apps/api/src/referral/http/referral-feature-operations.controller.ts`
+- [x] T032 [US2] Register the operational controller and guard in `apps/api/src/referral/referral.module.ts`
+- [x] T033 [P] [US2] Add Node tests for missing env, enable/disable, PUT-then-GET verification, malformed/non-2xx responses, state mismatch, network failure, and token redaction in `scripts/set-referral-feature.test.mjs`
+- [x] T034 [US2] Implement the environment-driven HTTP helper with strict failure handling and authoritative read-back in `scripts/set-referral-feature.mjs`
+- [x] T035 [US2] Add root `referral:enable` and `referral:disable` scripts that pass no repository secret in `package.json`
+
+### Public Availability And `FEATURE_DISABLED`
+
+- [x] T036 [P] [US2] Add public app-config and `FEATURE_DISABLED` definitions to `specs/005-referral-program/contracts/openapi.yaml`, then add contract tests for exact privacy-safe shape, no-store headers, storage failure, and visibility of every successful change across at least three live API instances within five seconds in `apps/api/test/app-config.contract-spec.ts`
+- [x] T037 [P] [US2] Add referral HTTP tests requiring identical `503 FEATURE_DISABLED` envelopes from both public referral reads while registration remains available in `apps/api/test/referral-http.contract-spec.ts`
+- [x] T038 [US2] Implement the public app-config response DTO and unauthenticated no-store controller in `apps/api/src/app-config/http/dto/app-config-response.dto.ts` and `apps/api/src/app-config/http/app-config.controller.ts`
+- [x] T039 [US2] Compose the public app-config endpoint with the referral availability service in `apps/api/src/app-config/app-config.module.ts` and `apps/api/src/app.module.ts`
+- [x] T040 [US2] Add stable `FEATURE_DISABLED` domain-to-HTTP mapping without exposing preserved data in `apps/api/src/referral/domain/referral-errors.ts`, `apps/api/src/referral/http/referral-error.filter.ts`, and `apps/api/src/referral/http/referral.controller.ts`
+- [x] T041 [US2] Gate referral summary and invitation queries with an authoritative availability read in `apps/api/src/referral/application/referral-query.service.ts`
+
+### Recovery Pause/Resume And Wallet Race Barrier
+
+- [x] T042 [P] [US2] Rewrite recovery unit tests for inviter-only claims, disabled zero-claim behavior, lost-guard release, legacy welcome exclusion, and re-enabled idempotent delivery in `apps/api/src/referral/application/referral-recovery.service.spec.ts`
+- [x] T043 [P] [US2] Add PostgreSQL race tests for toggle-before-claim, toggle-after-claim, wallet-commit/link failure, concurrent workers, both toggle/registration lock orders, and at least 100 disable/re-enable cycles that preserve existing facts and deliver every pre-disable incomplete inviter obligation exactly once in `apps/api/test/referral-recovery.integration-spec.ts` and `apps/api/test/referral-concurrency.integration-spec.ts`
+- [x] T044 [US2] Extend the trusted wallet command boundary with referral feature-guard context in `apps/api/src/wallet/application/wallet-command.ts` and `apps/api/src/wallet/application/ports/wallet.repository.ts`
+- [x] T045 [US2] Acquire the shared feature-row lock immediately before the idempotent referral ledger insert in `apps/api/src/wallet/application/wallet-command.service.ts` and `apps/api/src/wallet/infrastructure/postgres/prisma-wallet.repository.ts`
+- [x] T046 [US2] Pause inviter claims while disabled and safely release or resume already claimed obligations in `apps/api/src/referral/application/referral-recovery.service.ts` and `apps/api/src/referral/composition/referral-recovery.scheduler.ts`
+- [x] T047 [US2] Pass the trusted feature guard through live delivery and recovery CLI composition in `apps/api/src/referral/application/referral-bonus-delivery.service.ts` and `apps/api/src/referral/cli/recover-referral-bonuses.ts`
+
+**Checkpoint**: US2 is independently testable through both operator interfaces;
+after a successful disable boundary, no new relationship, entitlement, or
+referral wallet credit can start, and pending inviter work resumes once.
+
+**Minimal validation**: Run changed guard, DTO, service, script, and HTTP tests
+with `pnpm --filter @kaynann/api test -- src/referral/application/referral-feature-state.service.spec.ts src/referral/http/referral-operations.guard.spec.ts src/referral/http/dto/referral-feature-operation.dto.spec.ts src/referral/application/referral-recovery.service.spec.ts test/referral-feature-operations.contract-spec.ts test/app-config.contract-spec.ts test/referral-http.contract-spec.ts` and
+`node --test scripts/set-referral-feature.test.mjs`; run
+`pnpm --filter @kaynann/api openapi:check` after public controller changes, then
+run the PostgreSQL race suites when their acceptance environment is available.
 
 ---
 
-## Phase 8: Minimal Referral UI And Navigation
+## Phase 5: User Story 3 - Share My Referral Code (Priority: P2)
 
-**Purpose**: Render only the wallet-to-referral experience needed by US1-US4,
-using the mockup as visual direction rather than product truth.
+**Goal**: Preserve enabled code/link sharing while making server availability
+the MobX-owned source for registration and referral UI, with RxJS cancellation
+and complete removal of signed-in apply behavior.
 
-- [X] T078 [P] [US3] Add screen tests for loading, empty/loaded referral summary, retry, refresh, copy, share, accessibility, and safe displayed values in `apps/mobile/src/referral/screens/ReferralScreen.spec.tsx`; depends on T077; validate with `pnpm --filter @kaynann/mobile test -- src/referral/screens/ReferralScreen.spec.tsx`; done when tests reject mockup-only 20 L, full names, reward-after-purchase wording, sample codes, and bottom navigation; services: none.
-- [X] T079 [P] [US2] Add screen tests for prefilled explicit confirmation, validation errors, apply success, read-only attached code, closed eligibility, retry, and accessibility in `apps/mobile/src/referral/screens/ApplyReferralCodeScreen.spec.tsx`; depends on T077; validate with `pnpm --filter @kaynann/mobile test -- src/referral/screens/ApplyReferralCodeScreen.spec.tsx`; done when opening a link never applies automatically and success disables replacement; services: none.
-- [X] T080 [P] [US4] Add navigation/history tests for Wallet, Referral, and ApplyReferralCode routes, back behavior, empty history, 250-item pagination presentation, pagination loading, owner-safe labels, logout, and restoration in `apps/mobile/src/navigation/MainNavigator.spec.tsx`; depends on T077; validate with `pnpm --filter @kaynann/mobile test -- src/navigation/MainNavigator.spec.tsx`; done when no bottom-tabs package or full home redesign is required; services: none.
-- [X] T081 [US3] Implement responsive `ReferralScreen` loading/error/refresh/empty/loaded states, stable code/link, total amount, copy/share actions, privacy-safe rows, and accessibility labels/roles in `apps/mobile/src/referral/screens/ReferralScreen.tsx`; depends on T078; validate with `pnpm --filter @kaynann/mobile test -- src/referral/screens/ReferralScreen.spec.tsx`; done when the hierarchy follows the mockup direction but uses only API truth and project styling; services: none.
-- [X] T082 [US2] Implement `ApplyReferralCodeScreen` with bounded input, prefill, explicit apply, success lock, attached read-only state, stable validation/closed errors, retry, and accessibility in `apps/mobile/src/referral/screens/ApplyReferralCodeScreen.tsx`; depends on T079; validate with `pnpm --filter @kaynann/mobile test -- src/referral/screens/ApplyReferralCodeScreen.spec.tsx`; done when business decisions stay server-side and mobile sends only the canonicalizable code; services: none.
-- [X] T083 [US4] Implement minimal authenticated `MainNavigator` routes Wallet, Referral, and ApplyReferralCode with wallet entry point and back navigation in `apps/mobile/src/navigation/MainNavigator.tsx` and `apps/mobile/src/wallet/screens/WalletScreen.tsx`; depends on T080, T081, and T082; validate with `pnpm --filter @kaynann/mobile test -- src/navigation/MainNavigator.spec.tsx`; done when the existing wallet experience gains only the planned links and no duplicate wallet screen, bottom tabs, or full home screen; services: none.
-- [X] T084 [US1] [US2] [US3] [US4] Integrate authenticated navigation, deep-link prefilling, logout, session restoration, and session replacement in `apps/mobile/src/navigation/RootNavigator.tsx`, `apps/mobile/src/navigation/AuthNavigator.tsx`, and `apps/mobile/src/App.tsx`; depends on T077 and T083; validate with `pnpm --filter @kaynann/mobile test -- referral navigation && pnpm --filter @kaynann/mobile typecheck`; done when existing auth/logout behavior remains intact and private referral state is never retained across users; services: none.
-- [X] T085 [US4] Complete pagination loading, error, retry, and end-of-list presentation in `apps/mobile/src/referral/screens/ReferralScreen.tsx` and `apps/mobile/src/referral/screens/ReferralScreen.spec.tsx`, consuming the serialized and deduplicated pagination state already provided by `ReferralStore` without changing store semantics; depends on T072, T073, T074, T075, T081, T083, and T084; validate with `pnpm --filter @kaynann/mobile test -- src/referral/screens/ReferralScreen.spec.tsx src/referral/stores/referral.store.spec.ts`; done when the UI triggers the existing serialized load-more behavior, renders every store row once, and visually distinguishes page loading, page error, empty history, and end-of-list; services: none.
-- [X] T086 Perform manual iOS and Android visual/accessibility verification against `docs/design/mockups/06_referral_program_hd.png` and record results, including two separately timed SC-005 checks, in `specs/005-referral-program/checklists/mobile-visual.md`; depends on T085; validate with `pnpm --filter @kaynann/mobile build:js`; done when phone-width layouts, long/error text, loading/refresh/pagination, back navigation, screen-reader roles, logout, and link flows pass without prohibited mockup content, and locate-and-copy plus locate-and-open-share each complete within 10 seconds in separate runs on both platforms; services: Expo iOS and Android runtimes for manual verification.
+**Independent Test**: Load enabled availability, view/copy/share a stable code,
+open a link while signed out and signed in, disable during active requests and
+registration, then verify all referral UI/context is hidden or cleared and late
+results cannot restore it.
 
-**Checkpoint**: The minimal mobile referral journey is visually testable on
-iOS and Android and preserves existing auth/wallet navigation behavior.
+### Tests For User Story 3
+
+- [x] T048 [P] [US3] Add cold Observable app-config adapter tests for strict response shaping, abort teardown, and privacy-field rejection in `apps/mobile/src/api/app-config-api.spec.ts`
+- [x] T049 [P] [US3] Add MobX tests for unknown/loading/enabled/disabled/error transitions, revision-free public state, atomic clearing on session replacement, and complete hidden/visible UI eligibility within five seconds of an authoritative refresh in `apps/mobile/src/features/stores/feature-availability.store.spec.ts`
+- [x] T050 [P] [US3] Add RxJS service tests for refresh, stale-request cancellation, disable publication within five seconds, session replacement, retry, and disposal in `apps/mobile/src/features/services/feature-availability.service.spec.ts`
+- [x] T051 [US3] Rewrite mobile referral API/store/flow tests after T049 to remove apply and eligibility state, translate a referral `FEATURE_DISABLED` response into the shared `FeatureAvailabilityStore` disabled transition, atomically clear referral state, and reject stale data after disable in `apps/mobile/src/api/referral-api.spec.ts`, `apps/mobile/src/referral/stores/referral.store.spec.ts`, `apps/mobile/src/referral/services/referral-flow.service.spec.ts`, and `apps/mobile/src/features/stores/feature-availability.store.spec.ts`
+- [x] T052 [P] [US3] Rewrite deep-link tests for enabled anonymous pending context, disabled/unknown rejection, and unconditional signed-in ignore behavior in `apps/mobile/src/navigation/referral-link-coordinator.spec.ts`
+- [x] T053 [P] [US3] Update auth/navigation UI tests for hidden promo input/routes, disable-during-registration local and authorized-server context clearing, enabled sharing, and logout/session isolation in `apps/mobile/__tests__/phone-auth-flow.test.tsx`, `apps/mobile/src/auth/services/registration-flow.service.spec.ts`, `apps/mobile/src/navigation/AuthNavigator.spec.ts`, and `apps/mobile/src/navigation/MainNavigator.spec.tsx`
+
+### Implementation For User Story 3
+
+- [x] T054 [US3] Implement a typed cold Observable public app-config adapter with AbortController teardown in `apps/mobile/src/api/app-config-api.ts`
+- [x] T055 [US3] Implement `FeatureAvailabilityStore` as the sole owner of unknown/loading/enabled/disabled/error availability state in `apps/mobile/src/features/stores/feature-availability.store.ts`
+- [x] T056 [US3] Implement the disposable RxJS refresh/cancellation workflow that publishes authoritative availability to MobX in `apps/mobile/src/features/services/feature-availability.service.ts`
+- [x] T057 [US3] Compose and dispose app-config availability with auth and referral scopes in `apps/mobile/src/App.tsx` and `apps/mobile/src/auth/auth-composition-root.ts`
+- [x] T058 [US3] Remove apply operations and eligibility/attached-code state, route referral `FEATURE_DISABLED` API errors into the single `FeatureAvailabilityStore` disabled transition, and atomically clear/invalidate referral data and in-flight reads on disable or session epoch change in `apps/mobile/src/api/referral-api.ts`, `apps/mobile/src/referral/stores/referral.store.ts`, `apps/mobile/src/referral/services/referral-flow.service.ts`, `apps/mobile/src/referral/referral-composition-root.ts`, and `apps/mobile/src/features/stores/feature-availability.store.ts`
+- [x] T059 [US3] Make anonymous deep links populate editable pending context only while enabled and ignore all signed-in referral links in `apps/mobile/src/navigation/referral-link-coordinator.ts`
+- [x] T060 [US3] Hide or clear registration promo context while availability is unknown/disabled, persist null through the existing authenticated registration-context update when authorization is available, and omit the code from OTP/completion payloads in `apps/mobile/src/auth/stores/registration.store.ts`, `apps/mobile/src/auth/services/registration-flow.service.ts`, `apps/mobile/src/auth/services/otp-flow.service.ts`, and `apps/mobile/src/auth/screens/PhoneEntryScreen.tsx`
+- [x] T061 [US3] Delete `apps/mobile/src/referral/screens/ApplyReferralCodeScreen.tsx` and `apps/mobile/src/referral/screens/ApplyReferralCodeScreen.spec.tsx`, then remove the route, imports, callbacks, and signed-in navigation binding from `apps/mobile/src/navigation/MainNavigator.tsx`
+- [x] T062 [US3] Observe availability in root/main navigation, hide referral entry points and routes while unknown/disabled, and leave an active referral route on disable in `apps/mobile/src/navigation/RootNavigator.tsx`, `apps/mobile/src/navigation/MainNavigator.tsx`, and `apps/mobile/src/wallet/screens/WalletScreen.tsx`
+- [x] T063 [US3] Preserve enabled code/link rendering and copy/share actions without apply controls, including an acceptance check that users can locate and copy the code/link and open the supported system share flow within 10 seconds, in `apps/mobile/src/referral/screens/ReferralScreen.tsx`, `apps/mobile/src/referral/screens/ReferralScreen.spec.tsx`, and `apps/mobile/src/referral/native/referral-native-actions.spec.ts`
+
+**Checkpoint**: US3 remains independently testable when enabled, while disabled
+and unknown states expose no referral navigation, content, input, or retained
+deep-link context.
+
+**Minimal validation**: Run changed mobile tests with
+`pnpm --filter @kaynann/mobile test -- src/api/app-config-api.spec.ts src/features/stores/feature-availability.store.spec.ts src/features/services/feature-availability.service.spec.ts src/api/referral-api.spec.ts src/referral/stores/referral.store.spec.ts src/referral/services/referral-flow.service.spec.ts src/navigation/referral-link-coordinator.spec.ts src/auth/services/registration-flow.service.spec.ts src/navigation/AuthNavigator.spec.ts src/navigation/MainNavigator.spec.tsx __tests__/phone-auth-flow.test.tsx src/referral/screens/ReferralScreen.spec.tsx src/referral/native/referral-native-actions.spec.ts`, followed by
+`pnpm --filter @kaynann/mobile typecheck`; use
+`pnpm --filter @kaynann/mobile build:js` after navigation/composition changes.
 
 ---
 
-## Phase 9: Regression, PostgreSQL Acceptance, And Full Validation
+## Phase 6: User Story 4 - Review Referral Results (Priority: P2)
 
-**Purpose**: Consolidate opt-in commands, exercise concurrency/recovery at the
-required scale, and close all cross-feature acceptance gates.
+**Goal**: Preserve privacy-safe inviter totals and deterministic paginated
+history while enabled, and return no data while disabled.
 
-- [X] T087 Verify the Phase 2 `test:referral:postgres` and Phase 5 `test:referral:registration` scripts in `apps/api/package.json` and confirm default `pnpm test` remains hermetic and service-independent; depends on T020, T045, and T056; validate with `node -e "const s=require('./apps/api/package.json').scripts; if (!s['test:referral:postgres'] || !s['test:referral:registration']) process.exit(1); console.log(s['test:referral:postgres']); console.log(s['test:referral:registration'])" && pnpm --filter @kaynann/api test -- referral`; done when both commands still target only referral PostgreSQL suites and PostgreSQL+Redis registration suites respectively and the default referral tests require neither service; services: none.
-- [X] T088 Run the complete referral unit and HTTP/OpenAPI suites as a validation-only task with no planned file modifications; depends on T087; validate with `pnpm --filter @kaynann/api test -- referral && pnpm --filter @kaynann/mobile test -- referral src/navigation/MainNavigator.spec.tsx && pnpm --filter @kaynann/api openapi:check`; done when domain, config, API, store, flow, deep-link, native-action, screen, and authenticated navigation behavior, including `MainNavigator.spec.tsx`, passes without external services; if a failure requires code changes, add a separate remediation task naming the exact file and validation command before modifying it; services: none.
-- [X] T089 [P] Validate migration, provisioning dry-run/write/rerun, no retroactive welcome, forbidden mutations, failed-migration transaction atomicity, documented fix-forward behavior, and lazy repair in `apps/api/test/referral-migration.integration-spec.ts` and `apps/api/test/referral-provisioning.integration-spec.ts`; depends on T087; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:postgres -- -t "migration|provision"`; done when disposable fresh/feature-002/feature-004 schemas converge safely, fault-injected migration failure leaves no partial schema state, and provisioning creates no wallet operations; services: real PostgreSQL 17.
-- [X] T090 [P] Validate 100 same-code applies, 100 competing-code applies, concurrent invitees, apply-vs-lock commit order, 250-item traversal, isolation, masking, stable cursors, and the SC-006 apply path in `apps/api/test/referral-concurrency.integration-spec.ts` and `apps/api/test/referral-repository.integration-spec.ts`; depends on T087; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:postgres -- -t "concurrent|250|isolation|cursor|SC-006 apply"`; done when database constraints/locks produce deterministic winners with no duplicate relationship or inviter entitlement and the named `SC-006 apply` test starts and disposes the real one-second `ReferralRecoveryScheduler`, measures from the successful apply HTTP response, polls authenticated `GET /v1/referrals/me`, `GET /v1/referrals/invitations`, and `GET /v1/wallet/balance` at intervals no greater than 100 milliseconds, and observes the attached relationship, invitation, inviter summary, and exactly-once inviter wallet credit within 5 seconds with healthy PostgreSQL and no injected failure; services: real PostgreSQL 17.
-- [X] T091 [P] Validate concurrent recovery workers, expired leases, interruption after credit, retry backoff, permanent conflict, transaction rollback, stable event keys, reconciliation, automatic recovery after a simulated temporary wallet failure is removed, suspension of the beneficiary or promo owner after entitlement creation, and exactly-one wallet ledger effect in `apps/api/test/referral-recovery.integration-spec.ts`; depends on T087; validate with `RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:postgres -- -t "recovery|lease|rollback|ledger|temporary|suspended"`; done when every simulated transient obligation automatically reaches `DELIVERED` without manual balance changes after the dependency recovers, suspension after entitlement creation neither cancels the entitlement nor prevents recovery, permanent conflicts alone reach their explicit terminal state, and every entitlement reconciles to exactly one wallet effect; services: real PostgreSQL 17.
-- [X] T092 [P] Validate 100 repeated/concurrent registration completions, pending promo editing after validation failure, OTP/legal gating, process interruption, unchanged credentials, exact configured amounts, configuration changes affecting only new entitlements, transaction rollback on fault-injected referral onboarding, and the SC-006 registration path in `apps/api/test/referral-registration.integration-spec.ts`; depends on T087; validate with `RUN_POSTGRES_INTEGRATION=1 RUN_REDIS_INTEGRATION=1 pnpm --filter @kaynann/api test:referral:registration`; done when a failed onboarding transaction leaves no partially created user/legal/session/referral facts, US1 remains exactly-once at the wallet-effect level, existing users receive no retroactive welcome, and the named `SC-006 registration` test starts and disposes the real one-second `ReferralRecoveryScheduler`, measures from the successful registration completion response, polls the new session's authenticated `GET /v1/referrals/me` and `GET /v1/wallet/balance` plus the inviter's authenticated summary, invitations, and wallet balance at intervals no greater than 100 milliseconds, and observes the relationship plus exactly-once 10,000 ml welcome and 5,000 ml inviter credits within 5 seconds with healthy PostgreSQL, Redis, and no injected failure; services: real PostgreSQL 17 and Redis.
-- [X] T093 Run feature-002 auth/session/legal, feature-003 lint, and feature-004 wallet/ledger regression suites as a validation-only task with no planned file modifications; depends on T088, T089, T090, T091, and T092; validate with `pnpm test && pnpm lint && RUN_POSTGRES_INTEGRATION=1 pnpm --filter @kaynann/api exec vitest run test/wallet-postgres.integration-spec.ts test/wallet-history.integration-spec.ts`; done when default tests remain hermetic and auth plus wallet PostgreSQL regressions pass; if a regression requires code changes, add a separate remediation task naming the exact file and targeted validation before modifying it; services: real PostgreSQL 17 only for the explicit wallet command.
-- [X] T094 Update implementation and operational commands, environment prerequisites, schema-first rollout, old-writer drain, lazy-provisioning safety, dry-run/write/zero-missing verification, referral navigation exposure, fix-forward recovery, manual API/mobile checks, and opt-in suite instructions in `specs/005-referral-program/quickstart.md`; depends on T089, T090, T091, and T092; validate with `rg -n "referral:provision|referral:recover|zero missing|lazy provisioning|fix-forward|test:referral:postgres|test:referral:registration|openapi:check|build:mobile:js" specs/005-referral-program/quickstart.md`; done when every documented command exists, flags/services and the no-runtime-feature-flag rollout are explicit, issued referral records are preserved, and no automatic schema synchronization or manual balance edit is suggested; services: none.
-- [X] T095 Run schema, migration, OpenAPI, lint, format, typecheck, test, API build, and mobile JS build gates and record any environment-only limitation in `specs/005-referral-program/checklists/acceptance.md`; depends explicitly on T086, T090, T092, T093, and T094; validate with `pnpm --filter @kaynann/api exec prisma format --schema prisma/schema.prisma && pnpm --filter @kaynann/api exec prisma validate --schema prisma/schema.prisma && pnpm db:generate && pnpm --filter @kaynann/api openapi:check && pnpm lint:api && pnpm lint:mobile && pnpm lint && pnpm format:check && pnpm --filter @kaynann/api typecheck && pnpm --filter @kaynann/mobile typecheck && pnpm typecheck && pnpm test && pnpm build:api && pnpm build:mobile:js`; done when every command exits zero, both SC-006 scheduler-backed tests pass, the iOS and Android SC-005 evidence is recorded, and the acceptance checklist links quickstart instructions plus all separately executed service-backed and manual evidence; services: none for the listed automated gate, Expo iOS and Android runtimes for the prerequisite T086 evidence.
+**Independent Test**: Load zero, one-page, and multi-page histories for separate
+inviters, verify exact credited inviter-only totals and stable ordering, then
+disable and re-enable without changing or duplicating stored data.
 
-**Checkpoint**: All four stories, database guarantees, recovery behavior,
-privacy boundaries, and completed-feature regressions have executable evidence.
+### Tests For User Story 4
 
-**Phase 9 execution note (2026-08-11)**: all automated hermetic, PostgreSQL,
-PostgreSQL+Redis, wallet-regression, active-scheduler SC-006, OpenAPI, lint,
-format, typecheck, test, and build gates passed. The user also confirmed the
-T086 iOS/Android visual, accessibility, and timed SC-005 checks. Evidence is
-recorded in `checklists/acceptance.md` and `checklists/mobile-visual.md`.
+- [x] T064 [P] [US4] Add query unit tests for inviter-only credited totals, final-two-digit privacy labels, stable pagination, owner isolation, enabled-state enforcement, and traversal of at least 250 records without duplicates or omissions in `apps/api/src/referral/application/referral-query.service.spec.ts`
+- [x] T065 [P] [US4] Update PostgreSQL repository tests for preserved history, deterministic cursors across at least 250 records, inviter-only totals, and unchanged data across at least 100 disable/re-enable cycles in `apps/api/test/referral-repository.integration-spec.ts`
+- [x] T066 [P] [US4] Update mobile history tests for zero, loaded, traversal of at least 250 records, retry, disable clearing, re-enable reload, and stale page rejection in `apps/mobile/src/referral/screens/ReferralScreen.spec.tsx`
+
+### Implementation For User Story 4
+
+- [x] T067 [US4] Remove eligibility/application fields from referral summary projection while retaining owner-scoped inviter totals and privacy-safe cursor history in `apps/api/src/referral/application/referral-query.service.ts` and `apps/api/src/referral/infrastructure/postgres/prisma-referral.repository.ts`
+- [x] T068 [US4] Keep summary/history MobX and RxJS pagination state enabled-only, serialized, session-scoped, and resettable on disable in `apps/mobile/src/referral/stores/referral.store.ts` and `apps/mobile/src/referral/services/referral-flow.service.ts`
+- [x] T069 [US4] Render zero/loaded/paginated inviter history from API truth and suppress all content/actions when unavailable in `apps/mobile/src/referral/screens/ReferralScreen.tsx`
+
+**Checkpoint**: US4 reports only credited inviter outcomes, remains private and
+deterministic, and preserves data invisibly through a disabled interval.
+
+**Minimal validation**: Run
+`pnpm --filter @kaynann/api test -- src/referral/application/referral-query.service.spec.ts`
+and the changed mobile referral-screen test, then run the PostgreSQL repository
+suite when its acceptance environment is available.
+
+---
+
+## Phase 7: Eligibility Contract Migration
+
+**Purpose**: Prepare and test the schema contraction before rollout, then remove
+transient purchase-eligibility storage only after all new runtime code is
+deployed and old API instances have been drained.
+
+- [x] T070 Prove no runtime code or generated client references `ReferralEligibility` before contraction in `apps/api/src/referral/referral-boundaries.spec.ts` and `apps/api/test/referral-migration.integration-spec.ts`
+- [x] T071 Prepare the non-cascading contract migration that drops only `ReferralEligibility` constraints/table and remove its Prisma relation/model while retaining legacy bonus/channel enum values in `apps/api/prisma/migrations/20260812000200_drop_referral_eligibility/migration.sql` and `apps/api/prisma/schema.prisma`; do not apply this migration to a shared environment yet
+- [x] T072 Add and run disposable-database contract-migration assertions for preserved users, promo codes, relationships, entitlements, and wallet ledger rows, prove the new binary works with the contracted schema, and document that post-contraction recovery rejects legacy binaries and uses a corrected forward deployment rather than a down migration or recreated eligibility data in `apps/api/test/referral-migration.integration-spec.ts` and `specs/005-referral-program/checklists/rollout-readiness.md`
+- [ ] T073 After T070-T072 pass and the compatible backend is deployed, record and approve the blocking pre-application gate with deployed API versions, proof that every live instance is covered by T070, old-instance termination/drain evidence, and the responsible approver; then apply the prepared migration and record its applied identity plus post-apply preservation checks in `specs/005-referral-program/checklists/rollout-readiness.md`
+
+**Checkpoint**: Eligibility storage is absent only after the rolling-deployment
+drain gate, with no cascade or rewrite of historical accounting data.
+
+**Minimal validation**: Before any shared-environment drain, run
+`pnpm db:generate`, `pnpm --filter @kaynann/api typecheck`, and the targeted
+migration acceptance suite in a disposable PostgreSQL database. T073 separately
+records the gate, application, and post-apply checks for the target environment.
+
+---
+
+## Phase 8: Contracts, Integration, Concurrency, Mobile, And Rollout Validation
+
+**Purpose**: Synchronize source/generated contracts and close all cross-story,
+security, concurrency, visual, migration, rollout, and rollback gates.
+
+- [x] T074 Reconcile the public OpenAPI source updated in T014 and T036 with the completed controllers/DTOs, proving removed post-registration and eligibility schemas remain absent and operational routes remain excluded, in `specs/005-referral-program/contracts/openapi.yaml`
+- [x] T075 [P] Verify the protected GET/PUT implementation remains aligned with its standalone internal contract in `specs/005-referral-program/contracts/operational-feature-flag.openapi.yaml` and `apps/api/test/referral-feature-operations.contract-spec.ts`
+- [x] T076 Regenerate the aggregate public artifact after updating generator inputs in `apps/api/src/openapi/generate-openapi.ts` and `specs/005-referral-program/contracts/openapi.generated.json`
+- [x] T077 Add aggregate contract assertions for app-config, disabled errors, removed apply route/schemas, and exclusion of operational routes in `apps/api/test/openapi.contract-spec.ts` and `apps/api/test/referral-http.contract-spec.ts`
+- [x] T078 [P] Add static regression checks that welcome env/config, public apply route, eligibility-close command, apply screen, and active eligibility access cannot return in `apps/api/src/referral/referral-boundaries.spec.ts`, `apps/api/src/config/env.referral.spec.ts`, and `apps/mobile/src/navigation/MainNavigator.spec.tsx`
+- [x] T079 Run and independently record quickstart curl and package-script enable/disable completion under 30 seconds, repeated idempotent toggles, unauthorized attempts with zero state changes, and failed-toggle handling in the operational-control section of `specs/005-referral-program/checklists/runtime-rollout-validation.md`
+- [x] T080 Run and independently record restart persistence plus authoritative flag visibility across at least three API instances within five seconds in the persistence-and-multi-instance section of `specs/005-referral-program/checklists/runtime-rollout-validation.md`
+- [x] T081 Run and independently record enabled/disabled registration outcomes, at least 100 data-preserving disable/enable cycles, paused obligation behavior, and exactly-once recovery after re-enable in the registration-and-recovery section of `specs/005-referral-program/checklists/runtime-rollout-validation.md`
+- [x] T082 Run and record targeted API typecheck, unit, OpenAPI, PostgreSQL migration, registration, recovery, wallet-race, and concurrency results in `specs/005-referral-program/checklists/backend-validation.md`
+- [ ] T083 Run and record mobile typecheck/build/tests plus iOS and Android comparison with `docs/design/mockups/06_referral_program_hd.png`, proving enabled hierarchy, complete disabled UI absence within five seconds of authoritative refresh, and code/link copy plus supported system share discoverability within 10 seconds in `specs/005-referral-program/checklists/mobile-visual.md`
+- [ ] T084 Complete `specs/005-referral-program/checklists/rollout-readiness.md` with the executed rollout order, confirmation that the T073 gate immediately preceded migration application, historical row-count checks, the disabled-first forward-recovery procedure, and residual risks
 
 ---
 
@@ -284,67 +299,133 @@ recorded in `checklists/acceptance.md` and `checklists/mobile-visual.md`.
 
 ### Phase Dependencies
 
-- **Phase 1** has no implementation dependency and establishes all domain and configuration contracts.
-- **Phase 2** depends on Phase 1 and blocks persistence implementation.
-- **Phase 3** depends on Phase 2 and proves relationship/eligibility concurrency before bonus delivery.
-- **Phase 4** depends on Phase 3 and must finish before registration integration can create durable obligations.
-- **Phase 5** depends on Phase 4 and completes US1 without changing auth/session contracts.
-- **Phase 6** depends on Phase 5 so public acceptance observes the final registration/referral state model.
-- **Phase 7** depends on Phase 6 because mobile types and flows consume the finalized API contract.
-- **Phase 8** depends on Phase 7 because screens render only store/flow state.
-- **Phase 9** depends on all implementation phases and is the final acceptance gate.
+- **Phase 1 - Setup**: Starts immediately; the additive migration must deploy
+  before backend code expects the feature row.
+- **Phase 2 - Foundational**: Depends on Phase 1 and blocks all user stories.
+- **Phase 3 - US1**: Depends on Phase 2; establishes the revised registration
+  and inviter-only domain behavior.
+- **Phase 4 - US2**: Depends on Phase 2 and uses the US1 registration boundary
+  for disabled/toggle race validation. Finish US1 before the final US2 race
+  tasks T043-T047.
+- **Phase 5 - US3**: Depends on Phase 4 public app-config availability; enabled
+  sharing can otherwise be developed independently from US4 history work.
+- **Phase 6 - US4**: Depends on Phase 4 server gating and Phase 5 shared mobile
+  availability/store lifecycle.
+- **Phase 7 - Contract Migration**: Depends on Phases 3-6. Prepare and validate
+  the contraction through T070 -> T071 -> T072 before the production drain;
+  T073 may apply it only after the compatible backend is deployed and every old
+  API instance is drained.
+- **Phase 8 - Validation**: Depends on every selected story and the migration
+  phase intended for that rollout.
 
 ### User Story Dependencies
 
-- **US1 (P1)**: Phase 5 after the shared foundation; independently testable with registration completion, PostgreSQL, Redis, and wallet ledger evidence.
-- **US2 (P1)**: Phase 6 apply API, Phase 7 apply/store flow, and Phase 8 apply UI after the shared foundation; it does not depend on US3 or US4 behavior.
-- **US3 (P2)**: Phase 6 own-code API, Phase 7 copy/share/deep links, and Phase 8 referral view; it can be demonstrated without invitation history.
-- **US4 (P2)**: Phase 6 history API, Phase 7 pagination state, and Phase 8 history UI; it depends on shared relationship data but not copy/share behavior.
+- **US1 (P1)**: Begins after the persistent flag foundation; no dependency on
+  sharing or history UI.
+- **US2 (P1)**: Begins after the persistent flag foundation; operational API
+  and public availability are independently testable before recovery race tests
+  integrate with US1.
+- **US3 (P2)**: Requires the US2 public availability contract, but not US4.
+- **US4 (P2)**: Requires the shared US2 gating and US3 availability lifecycle;
+  backend query tests can begin after Phase 2.
 
-### Strict Internal Order
+### Within Each User Story
 
-1. Domain/configuration before Prisma repository.
-2. Prisma schema and reviewed migration before persistence code.
-3. Eligibility locking and relationship concurrency before entitlement delivery.
-4. Durable entitlement and recovery before registration integration.
-5. Registration integration before full public API acceptance.
-6. Public API before mobile API/store/flow.
-7. Mobile data flow before screens/navigation.
-8. All implementation phases before full regression.
-
-## Parallel Opportunities
-
-- T002-T004 and T009 are parallel unit-test tasks after T001.
-- T011 and T016 are parallel after Phase 1 because they touch distinct test layers.
-- T023-T025 are parallel test-first tasks after Phase 2.
-- T034 and T035 are parallel bonus/recovery test-first tasks after Phase 3.
-- T047 and T048 are parallel registration unit/integration test tasks.
-- T057-T059 use distinct test selections but deliberately remain sequential because they edit the same HTTP contract test file.
-- T069 and T070 are parallel mobile API/deep-link tests.
-- T078-T080 are parallel screen/navigation test tasks in different files.
-- T089-T092 are parallel opt-in acceptance groups only when each uses its own disposable PostgreSQL schema and isolated Redis key prefix.
-
-## MVP Strategy
-
-1. Complete Phases 1-4 to establish the safe shared foundation.
-2. Complete Phase 5 and validate US1 independently.
-3. Complete the US2 tasks in Phases 6-8 for the first post-registration referral increment.
-4. Add US3 sharing, then US4 summary/history.
-5. Complete Phase 9 before production rollout.
-
-The minimum product increment is Phases 1-5: reliable welcome/referral effects
-at registration. It is not operationally deployable until Phase 9's migration,
-recovery, regression, and validation gates also pass.
+- Write the listed story tests first and confirm revised assertions fail.
+- Implement boundary models/ports before services and controllers.
+- Implement server availability before mobile consumption.
+- Run focused unit/contract tests before PostgreSQL race suites.
+- After each logical diff, run and record the smallest applicable validation
+  command from its phase checkpoint rather than deferring all checks to T082 or
+  T083.
+- Do not apply the eligibility contract migration to a shared environment during
+  T071 or T072. T073 must record and approve the complete old-binary drain
+  immediately before application.
 
 ---
 
-## Phase 10: Convergence
+## Parallel Opportunities
 
-**Purpose**: Restore the referral module boundaries promised by the technical
-plan without changing referral, registration, session, or wallet behavior.
+### User Story 1
 
-- [X] T096 [US1] Restore the Prisma isolation boundary required by `plan.md` by keeping only the `REFERRAL_REGISTRATION_INTEGRATION` token, input/result types, and framework-free port in `apps/api/src/referral/application/referral-registration.integration.ts`, moving the concrete transaction-aware implementation to `apps/api/src/referral/infrastructure/postgres/prisma-referral-registration.integration.ts`, updating its provider binding in `apps/api/src/referral/referral.module.ts` and direct imports in `apps/api/test/referral-registration.integration-spec.ts`, and adding an import-boundary regression test in `apps/api/src/referral/referral-boundaries.spec.ts`; depends on T095; validate with `pnpm --filter @kaynann/api exec vitest run src/referral/referral-boundaries.spec.ts test/referral-registration.integration-spec.ts && pnpm --filter @kaynann/api typecheck`; done when `referral/domain` and `referral/application` import neither `@prisma/client` nor `referral/infrastructure`, registration onboarding still participates in the caller's existing Prisma transaction, and all existing registration/referral effects remain unchanged; source: `plan.md` backend boundaries (contradicts); services: none for the boundary test and typecheck, real PostgreSQL 17 and Redis for the existing opt-in registration integration suite.
-- [X] T097 Restrict `ReferralModule` exports in `apps/api/src/referral/referral.module.ts` to the trusted `REFERRAL_REGISTRATION_INTEGRATION` and `CLOSE_REFERRAL_ELIGIBILITY` application tokens required by `plan.md`, and add a Nest module-metadata regression test in `apps/api/src/referral/referral.module.spec.ts` proving that repository, bonus-delivery, provisioning, query, recovery, and concrete service providers remain private; depends on T096; validate with `pnpm --filter @kaynann/api exec vitest run src/referral/referral.module.spec.ts src/referral/referral-boundaries.spec.ts && pnpm --filter @kaynann/api typecheck`; done when existing auth composition still resolves onboarding, the future trusted purchase boundary can resolve eligibility close, no external source imports a removed internal export, and HTTP/recovery behavior is unchanged; source: `plan.md` `ReferralModule` export boundary (contradicts); services: none.
+```text
+T011: registration/provisioning unit tests
+T012: PostgreSQL registration acceptance tests
+T013: replay and competing-code concurrency tests
+T014: registration/referral HTTP contract tests
+T015: inviter-only delivery unit tests
+```
 
-**Checkpoint**: Prisma is isolated to referral PostgreSQL infrastructure and
-the Nest module exposes only its two documented trusted integration contracts.
+### User Story 2
+
+```text
+T027: operational HTTP contract tests
+T028: operational guard/DTO unit tests
+T033: root helper Node tests
+T036: public app-config contract tests
+T037: FEATURE_DISABLED referral HTTP tests
+T042: recovery unit tests
+T043: PostgreSQL race tests after US1 registration semantics are complete
+```
+
+### User Story 3
+
+```text
+T048: app-config adapter tests
+T049: MobX availability-store tests
+T050: RxJS availability-service tests
+T051: referral API/store/flow migration tests after T049
+T052: deep-link tests
+T053: auth/navigation UI tests
+```
+
+### User Story 4
+
+```text
+T064: query-service tests
+T065: PostgreSQL repository tests
+T066: mobile history tests
+```
+
+---
+
+## Implementation Strategy
+
+### MVP First
+
+1. Complete Phases 1 and 2.
+2. Complete Phase 3 (US1).
+3. Validate registration independently, including absence of invitee/welcome
+   credit and idempotent inviter-only delivery.
+4. Do not ship the revised behavior without the US2 kill switch if runtime
+   disablement is part of the release acceptance gate.
+
+### Incremental Delivery
+
+1. Deploy the additive feature-state migration seeded enabled.
+2. Deploy US1 and US2 backend code, then verify operational disable/enable,
+   public availability, registration gating, and recovery barriers.
+3. Release US3/US4 mobile behavior after the server app-config contract exists.
+4. Prepare and pass T070-T072 in a disposable database, deploy the compatible
+   backend, then drain every old instance and execute the T073 gate/application.
+5. Complete Phase 8 evidence before enabling referral acquisition after rollout.
+
+### Rollback Rule
+
+Disable referrals first, then roll back only to a schema-compatible binary that
+cannot recreate welcome or post-registration behavior. Never reverse wallet
+credits, delete historical referral facts, or use a destructive data down
+migration.
+
+## Notes
+
+- `[P]` tasks target different files or independent test fixtures.
+- Story labels provide traceability to `spec.md`; setup, foundational,
+  migration, and final validation tasks intentionally have no story label.
+- Legacy `WELCOME` and `POST_REGISTRATION` enum values remain historical-only;
+  retaining them is not permission to create new rows.
+- `ReferralEligibility` remains only for rolling compatibility until Phase 7.
+- Contract source changes in T014 and T036 precede backend/mobile consumers;
+  T074 is a final reconciliation rather than the first contract update.
+- Commit and validate one logical diff at a time in the listed dependency order,
+  using the phase-specific minimal validation commands above.

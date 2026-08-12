@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 
+import { AppConfigModule } from './app-config/app-config.module';
 import { AuthModule } from './auth/auth.module';
 import { SecurityModule } from './common/security/security.module';
 import { HealthModule } from './health/health.module';
@@ -14,6 +15,7 @@ import { WalletModule } from './wallet/wallet.module';
 @Module({
     imports: [
         ScheduleModule.forRoot(),
+        AppConfigModule,
         PrismaModule,
         RedisModule,
         SecurityModule,

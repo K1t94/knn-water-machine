@@ -29,6 +29,10 @@ interface LockedUserRow {
     readonly status: string;
 }
 
+interface ReferralFeatureStateRow {
+    readonly enabled: boolean;
+}
+
 interface BalanceRow {
     readonly balanceMl: bigint;
 }
@@ -117,6 +121,7 @@ export class PrismaWalletRepository implements WalletMutationRepository, WalletQ
         try {
             return await this.prisma.$transaction(
                 async (transaction) => {
+                    await this.assertFeatureEnabled(transaction, command.featureGuard);
                     await this.assertEligibleOwner(transaction, command.userId, command.ownerStatusPolicy);
                     await this.createProjectionIfAbsent(transaction, command.userId);
 
@@ -158,6 +163,22 @@ export class PrismaWalletRepository implements WalletMutationRepository, WalletQ
                 return this.classifyCommittedWinner(command);
             }
             throw this.mapInfrastructureError(error);
+        }
+    }
+
+    private async assertFeatureEnabled(
+        transaction: TransactionClient,
+        guard: ValidatedWalletCommand['featureGuard'],
+    ): Promise<void> {
+        if (guard === null) return;
+        const rows = await transaction.$queryRaw<ReferralFeatureStateRow[]>(Prisma.sql`
+            SELECT "enabled"
+            FROM "ReferralFeatureState"
+            WHERE "key" = 'REFERRAL_PROGRAM'::"ReferralFeatureKey"
+            FOR SHARE
+        `);
+        if (rows.at(0)?.enabled !== true) {
+            throw new WalletError('WALLET_FEATURE_DISABLED', 'The guarded wallet feature is disabled.');
         }
     }
 

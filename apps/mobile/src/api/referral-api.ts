@@ -4,22 +4,12 @@ import { AuthApiError } from './auth-api';
 
 import type { Observable } from 'rxjs';
 
-export type ReferralEligibility = 'OPEN' | 'ATTACHED' | 'CLOSED';
-
 export interface MyReferral {
     promoCode: string;
     referralLink: string;
-    eligibility: ReferralEligibility;
-    attachedPromoCode: string | null;
     currentInviterRewardMl: string;
     creditedInviterBonusMl: string;
     creditedInvitationCount: number;
-}
-
-export interface ReferralApplication {
-    status: 'ATTACHED' | 'ALREADY_ATTACHED';
-    promoCode: string;
-    appliedAt: string;
 }
 
 export interface ReferralInvitation {
@@ -43,7 +33,6 @@ export interface ReferralInvitationQuery {
 
 export interface ReferralApi {
     getMe(accessToken: string): Observable<MyReferral>;
-    apply(accessToken: string, promoCode: string): Observable<ReferralApplication>;
     getInvitations(accessToken: string, query?: ReferralInvitationQuery): Observable<ReferralInvitationPage>;
 }
 
@@ -58,15 +47,6 @@ export class FetchReferralApi implements ReferralApi {
 
     getMe(accessToken: string): Observable<MyReferral> {
         return this.request('/v1/referrals/me', accessToken, { method: 'GET' }, parseMyReferral);
-    }
-
-    apply(accessToken: string, promoCode: string): Observable<ReferralApplication> {
-        return this.request(
-            '/v1/referrals/applications',
-            accessToken,
-            { method: 'POST', body: JSON.stringify({ promoCode: canonicalizePromoCode(promoCode) }) },
-            parseApplication,
-        );
     }
 
     getInvitations(accessToken: string, query: ReferralInvitationQuery = {}): Observable<ReferralInvitationPage> {
@@ -128,8 +108,6 @@ function parseMyReferral(payload: unknown): MyReferral {
     const value = exactObject(payload, [
         'promoCode',
         'referralLink',
-        'eligibility',
-        'attachedPromoCode',
         'currentInviterRewardMl',
         'creditedInviterBonusMl',
         'creditedInvitationCount',
@@ -137,8 +115,6 @@ function parseMyReferral(payload: unknown): MyReferral {
     if (
         !matches(value.promoCode, promoCodePattern) ||
         !matches(value.referralLink, referralLinkPattern) ||
-        !isEligibility(value.eligibility) ||
-        !(value.attachedPromoCode === null || matches(value.attachedPromoCode, promoCodePattern)) ||
         !matches(value.currentInviterRewardMl, millilitresPattern) ||
         !matches(value.creditedInviterBonusMl, millilitresPattern) ||
         !isNonNegativeInteger(value.creditedInvitationCount)
@@ -148,24 +124,10 @@ function parseMyReferral(payload: unknown): MyReferral {
     return {
         promoCode: value.promoCode,
         referralLink: value.referralLink,
-        eligibility: value.eligibility,
-        attachedPromoCode: value.attachedPromoCode,
         currentInviterRewardMl: value.currentInviterRewardMl,
         creditedInviterBonusMl: value.creditedInviterBonusMl,
         creditedInvitationCount: value.creditedInvitationCount,
     };
-}
-
-function parseApplication(payload: unknown): ReferralApplication {
-    const value = exactObject(payload, ['status', 'promoCode', 'appliedAt']);
-    if (
-        (value.status !== 'ATTACHED' && value.status !== 'ALREADY_ATTACHED') ||
-        !matches(value.promoCode, promoCodePattern) ||
-        !isDateTime(value.appliedAt)
-    ) {
-        throw invalidResponse();
-    }
-    return { status: value.status, promoCode: value.promoCode, appliedAt: value.appliedAt };
 }
 
 function parseInvitationPage(payload: unknown): ReferralInvitationPage {
@@ -209,16 +171,8 @@ function exactObject(payload: unknown, keys: readonly string[]): Record<string, 
     return value;
 }
 
-function canonicalizePromoCode(value: string): string {
-    return value.trim().toUpperCase();
-}
-
 function matches(value: unknown, pattern: RegExp): value is string {
     return typeof value === 'string' && pattern.test(value);
-}
-
-function isEligibility(value: unknown): value is ReferralEligibility {
-    return value === 'OPEN' || value === 'ATTACHED' || value === 'CLOSED';
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

@@ -83,8 +83,7 @@ function mapError(error: unknown): AuthErrorCode | undefined {
     if (error instanceof LegalVersionStaleError) return error.code;
     if (error instanceof ReferralError) {
         if (error.code === 'REFERRAL_CODE_UNAVAILABLE' || error.code === 'REFERRAL_SELF_NOT_ALLOWED') return error.code;
-        if (error.code === 'REFERRAL_ALREADY_ATTACHED' || error.code === 'REFERRAL_ELIGIBILITY_CLOSED')
-            return error.code;
+        if (error.code === 'REFERRAL_ALREADY_ATTACHED') return error.code;
         return 'REFERRAL_SERVICE_UNAVAILABLE';
     }
     if (error instanceof SessionError) return error.code;
@@ -134,7 +133,6 @@ function productMessage(code: AuthErrorCode): string {
         REFERRAL_CODE_UNAVAILABLE: 'Referral code is unavailable.',
         REFERRAL_SELF_NOT_ALLOWED: 'You cannot use your own referral code.',
         REFERRAL_ALREADY_ATTACHED: 'A referral code is already attached.',
-        REFERRAL_ELIGIBILITY_CLOSED: 'A referral code can no longer be applied.',
         REFRESH_INVALID: 'The session is invalid. Sign in again.',
         REFRESH_EXPIRED: 'The session has expired. Sign in again.',
         REFRESH_REPLAYED: 'The session was revoked. Sign in again.',

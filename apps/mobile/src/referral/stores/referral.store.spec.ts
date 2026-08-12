@@ -41,34 +41,12 @@ describe('ReferralStore', () => {
         expect(store.viewState).toBe('initial');
     });
 
-    it('owns apply success, validation, closed, and prefilled-code states', () => {
+    it('contains no post-registration apply or eligibility state', () => {
         const store = new ReferralStore();
         const initial = store.beginInitialLoad();
         store.finishInitialLoad(initial, summary(), page([]));
-        store.prefillPromoCode('  23456789abcd ');
-        expect(store.applyCode).toBe('23456789ABCD');
-
-        const applied = store.beginApply();
-        store.finishApply(applied!, {
-            status: 'ATTACHED',
-            promoCode: '23456789ABCD',
-            appliedAt: '2026-08-10T10:00:00.000Z',
-        });
-        expect(store.applyState).toBe('success');
-        expect(store.myReferral?.attachedPromoCode).toBe('23456789ABCD');
-
-        store.clear();
-        store.prefillPromoCode('INVALID');
-        const invalid = store.beginApply();
-        store.failApply(invalid!, { code: 'REFERRAL_CODE_UNAVAILABLE', kind: 'validation', retryable: false });
-        expect(store.applyState).toBe('validation-error');
-
-        const closed = store.beginApply();
-        store.failApply(closed!, { code: 'REFERRAL_ELIGIBILITY_CLOSED', kind: 'closed', retryable: false });
-        expect(store.applyState).toBe('closed');
-        store.clear();
-        expect(store.applyCode).toBe('');
-        expect(store.applyError).toBeUndefined();
+        expect('applyCode' in store).toBe(false);
+        expect('eligibility' in store.myReferral!).toBe(false);
     });
 });
 
@@ -76,8 +54,6 @@ function summary(): MyReferral {
     return {
         promoCode: '23456789ABCD',
         referralLink: 'kaynann://register?promo=23456789ABCD',
-        eligibility: 'OPEN',
-        attachedPromoCode: null,
         currentInviterRewardMl: '5000',
         creditedInviterBonusMl: '0',
         creditedInvitationCount: 0,

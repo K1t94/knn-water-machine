@@ -2,7 +2,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { WalletCommandService } from '../../wallet/application/wallet-command.service';
 import { PrismaWalletRepository } from '../../wallet/infrastructure/postgres/prisma-wallet.repository';
 import { ReferralBonusDeliveryService } from '../application/referral-bonus-delivery.service';
+import { ReferralFeatureStateService } from '../application/referral-feature-state.service';
 import { REFERRAL_RECOVERY_BATCH_SIZE, ReferralRecoveryService } from '../application/referral-recovery.service';
+import { PrismaReferralFeatureStateRepository } from '../infrastructure/postgres/prisma-referral-feature-state.repository';
 import { PrismaReferralRepository } from '../infrastructure/postgres/prisma-referral.repository';
 
 interface CliOptions {
@@ -59,7 +61,8 @@ async function main(): Promise<void> {
         const walletRepository = new PrismaWalletRepository(prisma);
         const walletCommandService = new WalletCommandService(walletRepository);
         const deliveryService = new ReferralBonusDeliveryService(referralRepository, walletCommandService);
-        const recoveryService = new ReferralRecoveryService(referralRepository, deliveryService);
+        const featureState = new ReferralFeatureStateService(new PrismaReferralFeatureStateRepository(prisma));
+        const recoveryService = new ReferralRecoveryService(referralRepository, deliveryService, featureState);
         const result = await recoveryService.runOnce({ batchSize: options.batchSize });
         process.stdout.write(`${JSON.stringify({ event: 'referral_recovery_completed', ...result })}\n`);
         if (result.permanentFailure > 0) process.exitCode = 1;

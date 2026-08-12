@@ -7,7 +7,6 @@ const restrictedEnvironments = new Set<string>(['staging', 'production']);
 const base64UrlPattern = /^[A-Za-z0-9_-]+$/;
 const positiveDecimalPattern = /^[1-9]\d*$/;
 const referralBonusDefaults = {
-    REFERRAL_WELCOME_BONUS_ML: 10_000n,
     REFERRAL_INVITER_BONUS_ML: 5_000n,
 } as const;
 
@@ -87,8 +86,8 @@ const envSchema = z
         ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().max(900).default(900),
         SESSION_TTL_DAYS: z.coerce.number().int().positive().default(60),
 
-        REFERRAL_WELCOME_BONUS_ML: optionalTrimmedString,
         REFERRAL_INVITER_BONUS_ML: optionalTrimmedString,
+        REFERRAL_OPERATIONS_TOKEN: optionalBase64UrlSecret(32),
 
         OTP_SENDS_PER_PHONE_HOUR: z.coerce.number().int().positive().default(3),
         OTP_SENDS_PER_PHONE_DAY: z.coerce.number().int().positive().default(6),
@@ -124,7 +123,7 @@ const envSchema = z
         INTERNAL_METRICS_TOKEN: optionalBase64UrlSecret(32),
     })
     .superRefine((env, context) => {
-        for (const field of ['REFERRAL_WELCOME_BONUS_ML', 'REFERRAL_INVITER_BONUS_ML'] as const) {
+        for (const field of ['REFERRAL_INVITER_BONUS_ML'] as const) {
             const value = env[field];
             if (restrictedEnvironments.has(env.APP_ENV) && value === undefined) {
                 context.addIssue({
@@ -145,6 +144,14 @@ const envSchema = z
                     message: `must be a positive whole millilitre value not exceeding ${MAX_REFERRAL_MILLILITRES}`,
                 });
             }
+        }
+
+        if (restrictedEnvironments.has(env.APP_ENV) && !env.REFERRAL_OPERATIONS_TOKEN) {
+            context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['REFERRAL_OPERATIONS_TOKEN'],
+                message: 'is required in staging and production',
+            });
         }
 
         if (restrictedEnvironments.has(env.APP_ENV) && env.SMS_PROVIDER === 'fake') {
@@ -223,10 +230,6 @@ const envSchema = z
     })
     .transform((env) => ({
         ...env,
-        REFERRAL_WELCOME_BONUS_ML:
-            env.REFERRAL_WELCOME_BONUS_ML === undefined
-                ? referralBonusDefaults.REFERRAL_WELCOME_BONUS_ML
-                : BigInt(env.REFERRAL_WELCOME_BONUS_ML),
         REFERRAL_INVITER_BONUS_ML:
             env.REFERRAL_INVITER_BONUS_ML === undefined
                 ? referralBonusDefaults.REFERRAL_INVITER_BONUS_ML

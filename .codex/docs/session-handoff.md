@@ -5,8 +5,8 @@ conversation.
 
 ## Current Goal
 
-- Реализовать `002-phone-otp-auth` по утвержденным `spec.md`, `plan.md` и
-  `tasks.md`; Phase 1-5 завершены.
+- Доработать `005-referral-program` по обновленным `spec.md`, `plan.md` и
+  `tasks.md`; Phase 1-6 завершены.
 
 ## Current Branch
 
@@ -14,61 +14,58 @@ conversation.
 
 ## Current Feature Directory
 
-- `specs/002-phone-otp-auth`
+- `specs/005-referral-program`
 
 ## Done
 
-- Задачи Phase 1-5 (`T001-T086`) выполнены и отмечены в `tasks.md`.
-- Реализованы OTP challenge, Redis atomicity и anti-abuse из предыдущих фаз.
-- Добавлены заменяемый `SmsProvider` и `FakeSmsProvider`.
-- Реализованы registration authorization, legal version validation,
-  атомарное создание пользователя, legal acceptance и initial session.
-- Pending promo переносится только как неприменяемый registration context.
-- Mobile registration flow использует MobX для состояния, RxJS для
-  orchestration и SecureStore для registration authorization.
-- Реализованы access/refresh sessions, rotation lineage, replay detection,
-  отдельные device sessions и logout текущего устройства.
-- Mobile session flow восстанавливает сессию через SecureStore, автоматически
-  ротирует refresh token и хранит access token только в памяти.
-- OpenAPI обновлен для OTP, registration, legal и session endpoints.
+- Задачи Phase 1-6 (`T001-T069`) выполнены и отмечены в `tasks.md`.
+- Mobile получает server-authoritative referral availability через публичный
+  app-config adapter; MobX владеет состоянием, RxJS отменяет устаревшие запросы.
+- Referral UI, registration promo input и deep-link context скрываются или
+  очищаются при unknown/disabled state.
+- Post-registration apply-code UI, API client operations и eligibility state
+  удалены; signed-in referral links игнорируются.
+- `FEATURE_DISABLED` очищает referral state и блокирует возврат данных из
+  устаревших in-flight запросов.
+- При enabled state сохранены просмотр, копирование и share referral code/link.
+- Referral summary считает только доставленные inviter credits владельца;
+  welcome history не влияет на totals.
+- Owner-scoped cursor history проверена на 250 строках и остается неизменной
+  после 100 циклов disable/re-enable.
+- Активный referral screen полностью подавляет content/actions при disabled и
+  не принимает устаревшую страницу после очистки состояния.
 
 ## In Progress
 
-- Нет незавершенных задач Phase 5.
+- Нет незавершенных задач Phase 6.
 
 ## Blocked
 
-- Нет блокеров. Live Orange credentials не требуются до отдельного
-  post-credential acceptance этапа.
+- Нет блокеров.
 
 ## Next Single Diff
 
-- Начать Phase 6 с `OrangeSmsProvider`, OAuth token cache и mock HTTP API
-  (`T087-T103`). Live credentials для этого не требуются.
+- Начать Phase 7 с задач T070-T072: доказать отсутствие runtime eligibility
+  references и выполнить безопасную contract migration.
 
 ## Validation Already Run
 
-- `pnpm lint`
-- `pnpm typecheck`
-- `pnpm build:api`
-- `pnpm build:mobile:js`
-- `pnpm --filter @kaynann/api test` (102 passed, 20 feature-gated skipped)
-- Redis registration integration (8/8 with `RUN_REDIS_INTEGRATION=1`)
-- PostgreSQL persistence constraints (6/6 against local Compose PostgreSQL)
-- Registration transaction/concurrency integration (7/7)
-- OTP and registration HTTP contracts (19/19)
-- `pnpm --filter @kaynann/mobile test` (65/65)
-- Phase 5 API session tests (23/23, включая PostgreSQL concurrency/replay)
-- Phase 5 mobile session tests (21/21)
-- `pnpm --filter @kaynann/api openapi:check`
+- Phase 5 mobile suite: 30 test files, 124 tests passed.
+- `pnpm --filter @kaynann/mobile typecheck`
+- `pnpm --filter @kaynann/mobile lint`
+- `pnpm --filter @kaynann/mobile build:js`
 - `git diff --check`
+- Phase 6 API query suite: 4 tests passed.
+- Phase 6 PostgreSQL repository suite: 3 tests passed, включая 250 записей и
+  100 циклов disable/re-enable.
+- Phase 6 mobile referral screen suite: 5 tests passed.
+- Targeted API/mobile ESLint passed.
+- API и mobile typecheck пройдены для итогового Phase 6 diff.
 
 ## Validation Still Needed
 
-- Native visual acceptance of phone, OTP, legal, session restoration,
-  stale-legal routing and logout on iOS/Android remains a manual device check.
-- Live Orange OAuth, Sender Name, balance, delivery and DLR checks remain in
-  the post-credential phase.
+- Ручная проверка enabled/disabled UI, deep links, copy/share и активного
+  referral route на iOS/Android device или simulator.
 
 ## Files To Read On Resume
 
@@ -77,16 +74,14 @@ conversation.
 - `.codex/docs/ai-style-memory.md`
 - `.codex/docs/session-handoff.md`
 - `.specify/memory/constitution.md`
-- `specs/002-phone-otp-auth/spec.md`
-- `specs/002-phone-otp-auth/plan.md`
-- `specs/002-phone-otp-auth/tasks.md`
-- `specs/002-phone-otp-auth/data-model.md`
-- `specs/002-phone-otp-auth/research.md`
+- `specs/005-referral-program/spec.md`
+- `specs/005-referral-program/plan.md`
+- `specs/005-referral-program/tasks.md`
+- `specs/005-referral-program/data-model.md`
+- `specs/005-referral-program/research.md`
 - `package.json`
 
 ## Notes
 
-- Не изменять пользовательское удаление
-  `docs/speckit-prompts/otpspecify-prompt.txt`.
-- Локальные PostgreSQL, Redis и MQTT контейнеры запущены; production
-  credentials не использовались.
+- Не изменять пользовательский файл `.codex/.codex/logs/codex-tui.log`.
+- Build output `dist/mobile` не отслеживается git.

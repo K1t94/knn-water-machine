@@ -12,6 +12,7 @@ import { SessionFlowService } from '../src/auth/services/session-flow.service';
 import { OtpStore } from '../src/auth/stores/otp.store';
 import { RegistrationStore } from '../src/auth/stores/registration.store';
 import { SessionStore } from '../src/auth/stores/session.store';
+import { FeatureAvailabilityStore } from '../src/features/stores/feature-availability.store';
 import { RootNavigator } from '../src/navigation/RootNavigator';
 import { WalletStore } from '../src/wallet/stores/wallet.store';
 
@@ -322,6 +323,8 @@ function setContexts(
     registrationStore: RegistrationStore,
     registrationCommands = createRegistrationCommands(),
 ): void {
+    const availability = new FeatureAvailabilityStore();
+    availability.finishRefresh(availability.beginRefresh(), true);
     flowContexts.auth = {
         store: otpStore,
         commands: otpCommands,
@@ -329,6 +332,7 @@ function setContexts(
     flowContexts.registration = {
         store: registrationStore,
         commands: registrationCommands,
+        availability,
     } satisfies RegistrationFlowContextValue;
 }
 

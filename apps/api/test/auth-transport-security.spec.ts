@@ -82,7 +82,7 @@ function env(appEnv: 'development' | 'production') {
         FINGERPRINT_HMAC_KEY: secret,
         REGISTRATION_RESULT_ENCRYPTION_KEY: secret,
         JWT_ACCESS_SIGNING_KEY: secret,
-        REFERRAL_WELCOME_BONUS_ML: '10000',
         REFERRAL_INVITER_BONUS_ML: '5000',
+        REFERRAL_OPERATIONS_TOKEN: secret,
     });
 }

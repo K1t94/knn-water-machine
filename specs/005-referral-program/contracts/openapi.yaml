@@ -1,20 +1,34 @@
 openapi: 3.1.0
 info:
-  title: Kaynann Referral API
-  version: 0.1.0
-  description: >-
-    Source contract for authenticated referral reads and explicit promo-code
-    application. It adds no public bonus, recovery, eligibility, or wallet
-    mutation endpoint.
+  title: Kaynann Referral Public API
+  version: 0.2.0
+  description: Public availability and authenticated inviter-only referral reads.
 servers:
   - url: /
-security:
-  - bearerAuth: []
 paths:
+  /v1/app-config:
+    get:
+      operationId: getPublicAppConfig
+      summary: Get privacy-safe runtime feature availability
+      security: []
+      responses:
+        "200":
+          description: Current authoritative public availability
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppConfigResponseDto"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/referrals/me:
     get:
       operationId: getMyReferral
-      summary: Get the current user's referral code and summary
+      summary: Get the authenticated user's referral code and inviter summary
+      security:
+        - AccessBearer: []
       responses:
         "200":
           description: Referral information owned by the authenticated user
@@ -24,90 +38,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MyReferralResponse"
+                $ref: "#/components/schemas/MyReferralResponseDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "503":
-          $ref: "#/components/responses/ServiceUnavailable"
-  /v1/referrals/applications:
-    post:
-      operationId: applyReferralPromoCode
-      summary: Explicitly attach a promo code to the current user
-      description: >-
-        The authenticated user identity is the command identity. Repeating the
-        same attached code is idempotent; a different code is a conflict.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ApplyReferralCodeRequest"
-      responses:
-        "200":
-          description: Newly or previously attached canonical code
-          headers:
-            Cache-Control:
-              $ref: "#/components/headers/NoStore"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApplyReferralCodeResponse"
-        "400":
-          description: Malformed or unavailable code
-          headers:
-            Cache-Control:
-              $ref: "#/components/headers/NoStore"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PublicError"
-              examples:
-                unavailable:
-                  value:
-                    error:
-                      code: REFERRAL_CODE_UNAVAILABLE
-                      message: Referral code is unavailable.
-                      retryable: false
-                      requestId: referral-code-request
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "409":
-          description: Domain conflict
-          headers:
-            Cache-Control:
-              $ref: "#/components/headers/NoStore"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PublicError"
-              examples:
-                selfReferral:
-                  value:
-                    error:
-                      code: REFERRAL_SELF_NOT_ALLOWED
-                      message: You cannot use your own referral code.
-                      retryable: false
-                      requestId: referral-conflict-request
-                alreadyAttached:
-                  value:
-                    error:
-                      code: REFERRAL_ALREADY_ATTACHED
-                      message: A different referral code is already attached.
-                      retryable: false
-                      requestId: referral-conflict-request
-                eligibilityClosed:
-                  value:
-                    error:
-                      code: REFERRAL_ELIGIBILITY_CLOSED
-                      message: Referral code application is no longer available.
-                      retryable: false
-                      requestId: referral-conflict-request
-        "503":
-          $ref: "#/components/responses/ServiceUnavailable"
+          $ref: "#/components/responses/ReferralUnavailable"
   /v1/referrals/invitations:
     get:
       operationId: getMyReferralInvitations
-      summary: Get credited invitation history for the current user
+      summary: Get credited inviter bonus history
+      security:
+        - AccessBearer: []
       parameters:
         - name: limit
           in: query
@@ -126,90 +67,50 @@ paths:
             maxLength: 512
       responses:
         "200":
-          description: Newest-first deterministic invitation page
+          description: Newest-first credited invitations
           headers:
             Cache-Control:
               $ref: "#/components/headers/NoStore"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/InvitationPageResponse"
+                $ref: "#/components/schemas/ReferralInvitationPageResponseDto"
         "400":
-          description: Invalid cursor or page size
-          headers:
-            Cache-Control:
-              $ref: "#/components/headers/NoStore"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PublicError"
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "503":
-          $ref: "#/components/responses/ServiceUnavailable"
+          $ref: "#/components/responses/ReferralUnavailable"
 components:
   securitySchemes:
-    bearerAuth:
+    AccessBearer:
       type: http
       scheme: bearer
-      bearerFormat: access-session
+      bearerFormat: JWT
   headers:
     NoStore:
-      description: Prevent storage of user-specific referral data
       schema:
         type: string
         const: no-store
-  responses:
-    Unauthorized:
-      description: Missing, invalid, or expired access session
-      headers:
-        Cache-Control:
-          $ref: "#/components/headers/NoStore"
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/PublicError"
-    ServiceUnavailable:
-      description: Referral processing is temporarily unavailable
-      headers:
-        Cache-Control:
-          $ref: "#/components/headers/NoStore"
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/PublicError"
-          examples:
-            unavailable:
-              value:
-                error:
-                  code: REFERRAL_SERVICE_UNAVAILABLE
-                  message: Referral service is temporarily unavailable.
-                  retryable: true
-                  requestId: referral-service-request
   schemas:
-    Millilitres:
-      type: string
-      pattern: "^(0|[1-9][0-9]*)$"
-      description: Exact whole millilitres represented as a decimal string
-      examples:
-        - "5000"
-    ReferralEligibility:
-      type: string
-      enum:
-        - OPEN
-        - ATTACHED
-        - CLOSED
-    MyReferralResponse:
+    AppConfigResponseDto:
       type: object
       additionalProperties: false
-      required:
-        - promoCode
-        - referralLink
-        - eligibility
-        - attachedPromoCode
-        - currentInviterRewardMl
-        - creditedInviterBonusMl
-        - creditedInvitationCount
+      required: [features]
+      properties:
+        features:
+          $ref: "#/components/schemas/PublicFeatureAvailabilityDto"
+    PublicFeatureAvailabilityDto:
+      type: object
+      additionalProperties: false
+      required: [referralProgramEnabled]
+      properties:
+        referralProgramEnabled:
+          type: boolean
+    MyReferralResponseDto:
+      type: object
+      additionalProperties: false
+      required: [promoCode, referralLink, currentInviterRewardMl, creditedInviterBonusMl, creditedInvitationCount]
       properties:
         promoCode:
           type: string
@@ -217,59 +118,17 @@ components:
         referralLink:
           type: string
           pattern: "^kaynann://register\\?promo=[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$"
-        eligibility:
-          $ref: "#/components/schemas/ReferralEligibility"
-        attachedPromoCode:
-          oneOf:
-            - type: string
-              pattern: "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$"
-            - type: "null"
-        currentInviterRewardMl:
-          $ref: "#/components/schemas/Millilitres"
-        creditedInviterBonusMl:
-          $ref: "#/components/schemas/Millilitres"
         creditedInvitationCount:
           type: integer
           minimum: 0
-    ApplyReferralCodeRequest:
+        creditedInviterBonusMl:
+          $ref: "#/components/schemas/Millilitres"
+        currentInviterRewardMl:
+          $ref: "#/components/schemas/Millilitres"
+    ReferralInvitationResponseDto:
       type: object
       additionalProperties: false
-      required:
-        - promoCode
-      properties:
-        promoCode:
-          type: string
-          minLength: 1
-          maxLength: 64
-    ApplyReferralCodeResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - status
-        - promoCode
-        - appliedAt
-      properties:
-        status:
-          type: string
-          description: "`ATTACHED` is returned when the code is first attached; `ALREADY_ATTACHED` is returned for idempotent same-code replay with the same persisted `appliedAt`."
-          enum:
-            - ATTACHED
-            - ALREADY_ATTACHED
-        promoCode:
-          type: string
-          pattern: "^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$"
-        appliedAt:
-          type: string
-          format: date-time
-    Invitation:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - inviteeLabel
-        - appliedAt
-        - status
-        - creditedAmountMl
+      required: [id, inviteeLabel, appliedAt, status, creditedAmountMl]
       properties:
         id:
           type: string
@@ -277,69 +136,154 @@ components:
         inviteeLabel:
           type: string
           pattern: "^\\*\\*[0-9]{0,2}$"
-          description: Fixed mask plus at most the final two phone digits
         appliedAt:
           type: string
           format: date-time
-          description: Stable time when the referral relationship was successfully committed
         status:
           type: string
           const: CREDITED
         creditedAmountMl:
           $ref: "#/components/schemas/Millilitres"
-    InvitationPageResponse:
+    ReferralInvitationPageResponseDto:
       type: object
       additionalProperties: false
-      required:
-        - items
-        - nextCursor
-        - hasMore
+      required: [items, nextCursor, hasMore]
       properties:
         items:
           type: array
+          maxItems: 100
           items:
-            $ref: "#/components/schemas/Invitation"
+            $ref: "#/components/schemas/ReferralInvitationResponseDto"
         nextCursor:
-          oneOf:
-            - type: string
-              minLength: 1
-              maxLength: 512
-            - type: "null"
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 512
         hasMore:
           type: boolean
-    PublicError:
+    Millilitres:
+      type: string
+      pattern: "^[0-9]+$"
+      description: Exact non-negative whole millilitres encoded as a decimal string.
+    ReferralPublicErrorResponseDto:
       type: object
       additionalProperties: false
-      required:
-        - error
+      required: [error]
       properties:
         error:
-          $ref: "#/components/schemas/PublicErrorDetails"
-    PublicErrorDetails:
+          type: object
+          additionalProperties: false
+          required: [code, message, retryable, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                - FEATURE_DISABLED
+                - REFERRAL_CODE_UNAVAILABLE
+                - REFERRAL_SELF_NOT_ALLOWED
+                - REFERRAL_SERVICE_UNAVAILABLE
+                - REFERRAL_CURSOR_INVALID
+            message:
+              type: string
+              maxLength: 200
+            retryable:
+              type: boolean
+            requestId:
+              type: string
+              maxLength: 128
+    AuthErrorResponseDto:
       type: object
       additionalProperties: false
-      required:
-        - code
-        - message
-        - retryable
-        - requestId
+      required: [error]
       properties:
-        code:
-          type: string
-          enum:
-            - REFERRAL_CODE_UNAVAILABLE
-            - REFERRAL_SELF_NOT_ALLOWED
-            - REFERRAL_ALREADY_ATTACHED
-            - REFERRAL_ELIGIBILITY_CLOSED
-            - REFERRAL_CURSOR_INVALID
-            - REFERRAL_SERVICE_UNAVAILABLE
-        message:
-          type: string
-          minLength: 1
-          maxLength: 200
-        retryable:
-          type: boolean
-        requestId:
-          type: string
-          minLength: 1
-          maxLength: 128
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, retryable, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_PHONE
+                - UNSUPPORTED_COUNTRY
+                - RATE_LIMITED
+                - SMS_BUDGET_EXHAUSTED
+                - SMS_CONFIGURATION_ERROR
+                - SMS_AUTH_FAILED
+                - SMS_BALANCE_EXHAUSTED
+                - SMS_PROVIDER_RATE_LIMITED
+                - SMS_INVALID_RECIPIENT
+                - SMS_REJECTED
+                - SMS_TIMEOUT
+                - SMS_TEMPORARILY_UNAVAILABLE
+                - OTP_INVALID
+                - OTP_EXPIRED
+                - OTP_USED
+                - OTP_ATTEMPTS_EXHAUSTED
+                - REGISTRATION_AUTH_INVALID
+                - REGISTRATION_AUTH_EXPIRED
+                - LEGAL_VERSION_STALE
+                - REFERRAL_CODE_UNAVAILABLE
+                - REFERRAL_SELF_NOT_ALLOWED
+                - REFERRAL_ALREADY_ATTACHED
+                - REFERRAL_SERVICE_UNAVAILABLE
+                - DEPENDENCY_UNAVAILABLE
+                - SESSION_CREATION_FAILED
+                - REFRESH_INVALID
+                - REFRESH_EXPIRED
+                - REFRESH_REPLAYED
+            message:
+              type: string
+            retryable:
+              type: boolean
+            retryAfterSeconds:
+              type: integer
+              minimum: 1
+            requestId:
+              type: string
+              maxLength: 128
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReferralPublicErrorResponseDto"
+    Unauthorized:
+      description: Valid access session required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AuthErrorResponseDto"
+    ServiceUnavailable:
+      description: Authoritative configuration is temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReferralPublicErrorResponseDto"
+          example:
+            error:
+              code: REFERRAL_SERVICE_UNAVAILABLE
+              message: Service is temporarily unavailable.
+              retryable: true
+              requestId: request-id
+    ReferralUnavailable:
+      description: Referral feature is disabled or temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ReferralPublicErrorResponseDto"
+          examples:
+            disabled:
+              value:
+                error:
+                  code: FEATURE_DISABLED
+                  message: Referral program is disabled.
+                  retryable: false
+                  requestId: request-id
+            unavailable:
+              value:
+                error:
+                  code: REFERRAL_SERVICE_UNAVAILABLE
+                  message: Service is temporarily unavailable.
+                  retryable: true
+                  requestId: request-id

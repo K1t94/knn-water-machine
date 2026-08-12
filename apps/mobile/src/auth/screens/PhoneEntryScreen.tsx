@@ -62,7 +62,7 @@ export const PhoneEntryScreen = observer(({ navigation }: Props) => {
                         />
                     </View>
 
-                    <View style={styles.promoField}>
+                    {registration.availability.referralUiVisible ? <View style={styles.promoField}>
                         <TextInput
                             accessibilityLabel="Code promo facultatif"
                             autoCapitalize="characters"
@@ -81,7 +81,7 @@ export const PhoneEntryScreen = observer(({ navigation }: Props) => {
                                 <Text style={styles.removePromo}>Supprimer</Text>
                             </Pressable>
                         ) : null}
-                    </View>
+                    </View> : null}
 
                     {store.errorMessage ? (
                         <Text accessibilityRole="alert" style={styles.error}>

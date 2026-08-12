@@ -1,3 +1,4 @@
+import { reaction } from 'mobx';
 import {
     EMPTY,
     Subject,
@@ -16,6 +17,7 @@ import {
 import { AuthApiError, type AuthApi, type OtpVerified } from '../../api/auth-api';
 import { createRuntimeId } from '../../common/create-runtime-id';
 
+import type { FeatureAvailabilityStore } from '../../features/stores/feature-availability.store';
 import type {
     RegistrationAuthorizationStorage,
     StoredRegistrationAuthorization,
@@ -51,11 +53,25 @@ export class RegistrationFlowService implements RegistrationCommands {
         private readonly api: AuthApi,
         private readonly storage: RegistrationAuthorizationStorage,
         private readonly onCompleted?: (session: NonNullable<RegistrationStore['session']>) => void,
+        private readonly availability?: FeatureAvailabilityStore,
     ) {
         this.subscriptions.add(this.starts.pipe(switchMap((command) => this.start(command))).subscribe());
         this.subscriptions.add(this.documentLoads.pipe(exhaustMap(() => this.loadDocuments())).subscribe());
         this.subscriptions.add(this.promoMutations.pipe(switchMap((value) => this.persistPromo(value))).subscribe());
         this.subscriptions.add(this.completions.pipe(exhaustMap(() => this.completeRegistration())).subscribe());
+        if (availability) {
+            this.subscriptions.add(
+                reaction(
+                    () => availability.state,
+                    (state) => {
+                        if (state !== 'disabled') return;
+                        this.store.removePendingPromoCode();
+                        if (this.authorization) this.promoMutations.next(null);
+                    },
+                    { fireImmediately: true },
+                ),
+            );
+        }
     }
 
     begin = (result: OtpVerified): void => {
@@ -72,6 +88,7 @@ export class RegistrationFlowService implements RegistrationCommands {
     };
 
     setPendingPromoCode = (value: string): void => {
+        if (this.availability && !this.availability.referralProgramEnabled) return;
         this.store.setPendingPromoCode(value);
         if (this.authorization) {
             this.promoMutations.next(this.store.pendingPromoCode ?? null);
@@ -126,6 +143,10 @@ export class RegistrationFlowService implements RegistrationCommands {
                 }
                 this.authorization = authorization;
                 this.idempotencyKey = undefined;
+                if (this.availability?.state === 'disabled') {
+                    this.store.removePendingPromoCode();
+                    this.promoMutations.next(null);
+                }
                 return this.loadDocuments();
             }),
             catchError((error: unknown) => this.handleError(error)),

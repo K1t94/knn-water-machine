@@ -18,7 +18,7 @@ import {
     type ReferralPostgresSchema,
 } from './referral-postgres.fixture';
 
-import type { ReferralEntitlementId, PurchaseBusinessEventKey } from '../src/referral/domain/referral-types';
+import type { ReferralEntitlementId } from '../src/referral/domain/referral-types';
 import type { PrismaClient } from '@prisma/client';
 
 const describePostgres = referralPostgresEnabled ? describe : describe.skip;
@@ -48,17 +48,16 @@ describePostgres('PrismaReferralRepository concurrency', () => {
 
         const results = await Promise.all(
             Array.from({ length: concurrentAttempts }, () =>
-                repository.applyCode({
+                repository.attachDuringRegistration({
                     inviteeUserId,
                     promoCode: inviter.promoCode,
-                    channel: 'POST_REGISTRATION',
                     inviterEntitlement: createInviterEntitlement(),
                 }),
             ),
         );
 
-        expect(results.filter((result) => result.status === 'ATTACHED')).toHaveLength(1);
-        expect(results.filter((result) => result.status === 'ALREADY_ATTACHED')).toHaveLength(concurrentAttempts - 1);
+        expect(results.filter((result) => result.created)).toHaveLength(1);
+        expect(results.filter((result) => !result.created)).toHaveLength(concurrentAttempts - 1);
         await expect(prisma.referralRelationship.count({ where: { inviteeUserId } })).resolves.toBe(1);
         await expect(
             prisma.referralBonusEntitlement.count({ where: { beneficiaryUserId: inviterUserId } }),
@@ -76,10 +75,9 @@ describePostgres('PrismaReferralRepository concurrency', () => {
 
         const results = await Promise.allSettled(
             promoCodes.map((promoCode) =>
-                repository.applyCode({
+                repository.attachDuringRegistration({
                     inviteeUserId,
                     promoCode,
-                    channel: 'POST_REGISTRATION',
                     inviterEntitlement: createInviterEntitlement(),
                 }),
             ),
@@ -109,10 +107,9 @@ describePostgres('PrismaReferralRepository concurrency', () => {
 
         await Promise.all(
             inviteeUserIds.map((inviteeUserId) =>
-                repository.applyCode({
+                repository.attachDuringRegistration({
                     inviteeUserId,
                     promoCode: inviter.promoCode,
-                    channel: 'POST_REGISTRATION',
                     inviterEntitlement: createInviterEntitlement(),
                 }),
             ),
@@ -124,34 +121,6 @@ describePostgres('PrismaReferralRepository concurrency', () => {
         ).resolves.toBe(concurrentAttempts);
     }, 120_000);
 
-    it('uses commit order semantics when apply and eligibility close race', async () => {
-        const inviterUserId = await insertReferralTestUser(prisma, '200005');
-        const inviteeUserId = await insertReferralTestUser(prisma, '200006');
-        const inviter = await repository.provisionUser({ userId: inviterUserId, createdAt: new Date() });
-
-        const results = await Promise.allSettled([
-            repository.applyCode({
-                inviteeUserId,
-                promoCode: inviter.promoCode,
-                channel: 'POST_REGISTRATION',
-                inviterEntitlement: createInviterEntitlement(),
-            }),
-            repository.closeEligibility({
-                userId: inviteeUserId,
-                purchaseBusinessEventKey: `purchase:${randomUUID()}` as PurchaseBusinessEventKey,
-                succeededAt: new Date(),
-            }),
-        ]);
-        const relationshipCount = await prisma.referralRelationship.count({ where: { inviteeUserId } });
-        const eligibility = await prisma.referralEligibility.findUniqueOrThrow({
-            where: { userId: inviteeUserId },
-            select: { status: true },
-        });
-
-        expect(results).toHaveLength(2);
-        expect(relationshipCount === 1 || eligibility.status === 'CLOSED').toBe(true);
-        expect(relationshipCount === 1 && eligibility.status === 'CLOSED').toBe(false);
-    });
 });
 
 function createInviterEntitlement() {

@@ -27,6 +27,10 @@ const generated = JSON.parse(
 const authSourceContract = readFileSync(resolve(featureTwoContracts, 'openapi.yaml'), 'utf8');
 const walletSourceContract = readFileSync(resolve(featureFourContracts, 'openapi.yaml'), 'utf8');
 const referralSourceContract = readFileSync(resolve(featureFiveContracts, 'openapi.yaml'), 'utf8');
+const operationalReferralSourceContract = readFileSync(
+    resolve(featureFiveContracts, 'operational-feature-flag.openapi.yaml'),
+    'utf8',
+);
 
 const publicPaths = [
     '/v1/auth/otp/requests',
@@ -117,23 +121,22 @@ describe('generated aggregate OpenAPI contract', () => {
         ]);
     });
 
-    it('publishes authenticated referral reads and natural-idempotency application', () => {
-        for (const path of ['/v1/referrals/me', '/v1/referrals/applications', '/v1/referrals/invitations']) {
+    it('publishes only authenticated referral reads', () => {
+        for (const path of ['/v1/referrals/me', '/v1/referrals/invitations']) {
             expect(generated.paths).toHaveProperty(path);
             expect(referralSourceContract).toContain(`  ${path}:`);
         }
 
         const me = operation('/v1/referrals/me', 'get');
-        const application = operation('/v1/referrals/applications', 'post');
         const invitations = operation('/v1/referrals/invitations', 'get');
 
-        for (const endpoint of [me, application, invitations]) {
+        for (const endpoint of [me, invitations]) {
             expect(endpoint.security).toContainEqual({ AccessBearer: [] });
         }
         expect(Object.keys(me.responses ?? {})).toEqual(['200', '401', '503']);
-        expect(Object.keys(application.responses ?? {})).toEqual(['200', '400', '401', '409', '503']);
         expect(Object.keys(invitations.responses ?? {})).toEqual(['200', '400', '401', '503']);
-        expect(application.parameters ?? []).not.toContainEqual(expect.objectContaining({ name: 'Idempotency-Key' }));
+        expect(generated.paths).not.toHaveProperty('/v1/referrals/applications');
+        expect(referralSourceContract).not.toContain('  /v1/referrals/applications:');
         expect(invitations.parameters).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({ name: 'limit', required: false }),
@@ -142,16 +145,42 @@ describe('generated aggregate OpenAPI contract', () => {
         );
     });
 
+    it('keeps public availability and referral schemas aligned with the source contract', () => {
+        const appConfig = operation('/v1/app-config', 'get');
+        expect(appConfig.security).toBeUndefined();
+        expect(Object.keys(appConfig.responses ?? {})).toEqual(['200', '503']);
+        expect(referralSourceContract).toContain('#/components/schemas/AppConfigResponseDto');
+        expect(referralSourceContract).toContain('#/components/schemas/PublicFeatureAvailabilityDto');
+
+        for (const [schemaName, fields] of [
+            ['AppConfigResponseDto', ['features']],
+            ['PublicFeatureAvailabilityDto', ['referralProgramEnabled']],
+            [
+                'MyReferralResponseDto',
+                [
+                    'creditedInvitationCount',
+                    'creditedInviterBonusMl',
+                    'currentInviterRewardMl',
+                    'promoCode',
+                    'referralLink',
+                ],
+            ],
+            ['ReferralInvitationPageResponseDto', ['hasMore', 'items', 'nextCursor']],
+        ] as const) {
+            const schema = generated.components.schemas[schemaName] as { properties: Record<string, unknown> };
+            expect(Object.keys(schema.properties)).toEqual(fields);
+            for (const field of fields) expect(referralSourceContract).toContain(`${field}:`);
+        }
+    });
+
     it('exposes only privacy-safe referral response fields and no operational endpoints', () => {
         const summary = generated.components.schemas.MyReferralResponseDto as {
             properties: Record<string, unknown>;
         };
         expect(Object.keys(summary.properties)).toEqual([
-            'attachedPromoCode',
             'creditedInvitationCount',
             'creditedInviterBonusMl',
             'currentInviterRewardMl',
-            'eligibility',
             'promoCode',
             'referralLink',
         ]);
@@ -169,6 +198,7 @@ describe('generated aggregate OpenAPI contract', () => {
 
         const allPaths = Object.keys(generated.paths).join(' ');
         for (const forbidden of [
+            '/internal/feature-flags/referral-program',
             '/v1/referrals/recovery',
             '/v1/referrals/provisioning',
             '/v1/referrals/eligibility',
@@ -178,6 +208,12 @@ describe('generated aggregate OpenAPI contract', () => {
         ]) {
             expect(allPaths).not.toContain(forbidden);
         }
+        expect(operationalReferralSourceContract).toContain('  /internal/feature-flags/referral-program:');
+        expect(referralSourceContract).not.toContain('/internal/feature-flags/referral-program');
+
+        const schemaNames = Object.keys(generated.components.schemas).join(' ');
+        expect(schemaNames).not.toMatch(/ReferralEligibility|ReferralApplication|ApplyReferral/i);
+        expect(referralSourceContract).not.toMatch(/ReferralEligibility|ReferralApplication|ApplyReferral/i);
     });
 
     it('keeps status codes, authorization, and idempotency explicit', () => {

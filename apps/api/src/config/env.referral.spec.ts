@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { MAX_REFERRAL_MILLILITRES } from '../referral/domain/referral-types';
@@ -33,47 +36,57 @@ function restrictedEnv(appEnv: 'staging' | 'production', overrides: Record<strin
         ORANGE_SMS_SENDER_NAME: 'KAYNANN',
         ORANGE_SMS_API_URL: 'https://api.example.test/smsmessaging/v1',
         ORANGE_SMS_OAUTH_URL: 'https://api.example.test/oauth/v3/token',
-        REFERRAL_WELCOME_BONUS_ML: '10000',
         REFERRAL_INVITER_BONUS_ML: '5000',
+        REFERRAL_OPERATIONS_TOKEN: secret32,
         ...overrides,
     });
 }
 
-describe('referral bonus environment', () => {
+describe('referral environment', () => {
+    it('does not accept or document a welcome-bonus setting', () => {
+        const env = loadEnv(validEnv({ REFERRAL_WELCOME_BONUS_ML: '9999' }));
+        const envSource = readFileSync(resolve(__dirname, 'env.ts'), 'utf8');
+        const envTemplate = readFileSync(resolve(__dirname, '../../.env.example'), 'utf8');
+
+        expect(env).not.toHaveProperty('REFERRAL_WELCOME_BONUS_ML');
+        expect(envSource).not.toContain('REFERRAL_WELCOME_BONUS_ML');
+        expect(envTemplate).not.toContain('REFERRAL_WELCOME_BONUS_ML');
+    });
+
     it.each(['development', 'test'] as const)('uses exact bigint defaults in %s', (appEnv) => {
         const env = loadEnv(validEnv({ APP_ENV: appEnv }));
 
-        expect(env.REFERRAL_WELCOME_BONUS_ML).toBe(10_000n);
         expect(env.REFERRAL_INVITER_BONUS_ML).toBe(5_000n);
+        expect(env.REFERRAL_OPERATIONS_TOKEN).toBeUndefined();
     });
 
-    it.each(['staging', 'production'] as const)('requires both values in %s', (appEnv) => {
+    it.each(['staging', 'production'] as const)('requires inviter amount and operations token in %s', (appEnv) => {
         expect(() =>
             loadEnv(
                 restrictedEnv(appEnv, {
-                    REFERRAL_WELCOME_BONUS_ML: undefined,
                     REFERRAL_INVITER_BONUS_ML: undefined,
+                    REFERRAL_OPERATIONS_TOKEN: undefined,
                 }),
             ),
-        ).toThrow(/REFERRAL_WELCOME_BONUS_ML.*REFERRAL_INVITER_BONUS_ML/);
+        ).toThrow(/REFERRAL_INVITER_BONUS_ML.*REFERRAL_OPERATIONS_TOKEN/);
     });
 
     it('accepts explicit exact values in restricted environments', () => {
         const env = loadEnv(
             restrictedEnv('production', {
-                REFERRAL_WELCOME_BONUS_ML: '12000',
                 REFERRAL_INVITER_BONUS_ML: '6000',
+                REFERRAL_OPERATIONS_TOKEN: Buffer.alloc(48, 9).toString('base64url'),
             }),
         );
 
-        expect(env.REFERRAL_WELCOME_BONUS_ML).toBe(12_000n);
         expect(env.REFERRAL_INVITER_BONUS_ML).toBe(6_000n);
+        expect(env.REFERRAL_OPERATIONS_TOKEN).toBe(Buffer.alloc(48, 9).toString('base64url'));
     });
 
-    it.each(['0', '-1', '1.5', '1e4', `${MAX_REFERRAL_MILLILITRES + 1n}`])(
-        'rejects invalid welcome amount %s',
+    it.each(['short', 'not+base64url', Buffer.alloc(31, 1).toString('base64url')])(
+        'rejects invalid operations token %s',
         (value) => {
-            expect(() => loadEnv(validEnv({ REFERRAL_WELCOME_BONUS_ML: value }))).toThrow(/REFERRAL_WELCOME_BONUS_ML/);
+            expect(() => loadEnv(validEnv({ REFERRAL_OPERATIONS_TOKEN: value }))).toThrow(/REFERRAL_OPERATIONS_TOKEN/);
         },
     );
 

@@ -85,11 +85,6 @@ export class RegistrationService {
             return this.registrations.recoverResult(command.registrationAuthorization, command.idempotencyKey);
         }
 
-        const pendingPromoCode = await this.referral.prevalidatePendingPromo(
-            authorization.pendingPromoCode ?? null,
-            authorization.existingUserId,
-        );
-
         let completion = await this.registrations.beginCompletion(
             command.registrationAuthorization,
             command.idempotencyKey,
@@ -128,7 +123,6 @@ export class RegistrationService {
                     command.setVersion,
                     command.acceptedDocumentIds,
                 );
-                const existingUser = await this.users.findByPhoneInTransaction(transaction, authorization.phoneE164);
                 const user = await this.users.upsertConfirmedInTransaction(transaction, {
                     id: completion.userId,
                     phoneE164: authorization.phoneE164,
@@ -156,12 +150,11 @@ export class RegistrationService {
                 });
                 const onboarding = await this.referral.completeOnboarding(transaction, {
                     userId: user.id,
-                    isNewUser: existingUser === null,
-                    pendingPromoCode,
+                    pendingPromoCode: authorization.pendingPromoCode ?? null,
                     completedAt: acceptedAt,
                     registrationCompletionId: completion.flowId,
                 });
-                referralEntitlementIds = onboarding.entitlementIds;
+                referralEntitlementIds = onboarding.inviterEntitlementIds;
             },
             { isolationLevel: 'Serializable' },
         );

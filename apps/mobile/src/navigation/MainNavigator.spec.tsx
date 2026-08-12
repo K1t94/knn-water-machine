@@ -1,6 +1,10 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { describe, expect, it, vi } from 'vitest';
 
+import { FeatureAvailabilityStore } from '../features/stores/feature-availability.store';
 import { ReferralStore } from '../referral/stores/referral.store';
 import { WalletStore } from '../wallet/stores/wallet.store';
 
@@ -10,38 +14,44 @@ import type { ReferralCompositionRoot } from '../referral/referral-composition-r
 import type { WalletCompositionRoot } from '../wallet/wallet-composition-root';
 
 describe('MainNavigator', () => {
-    it('declares Wallet, Referral, and ApplyReferralCode and keeps wallet actions wired', async () => {
-        const wallet = walletRoot();
-        const referral = referralRoot();
-        const logout = vi.fn();
+    it('shows the referral entry only while availability is enabled', async () => {
+        const referral = referralRoot(true);
         const navigate = vi.spyOn(mainNavigationRef, 'navigate').mockImplementation(() => undefined);
-        const view = await render(<MainNavigator onLogout={logout} referral={referral} wallet={wallet} />);
-
-        expect(view.getByText('Mon eau')).toBeTruthy();
+        const view = await render(<MainNavigator onLogout={vi.fn()} referral={referral} wallet={walletRoot()} />);
         await fireEvent.press(view.getByLabelText('Ouvrir le parrainage'));
         expect(navigate).toHaveBeenCalledWith('Referral');
-        await fireEvent.press(view.getByLabelText('Se déconnecter'));
-        expect(logout).toHaveBeenCalledOnce();
+        await act(async () => referral.availability.disableFromReferralResponse());
+        await waitFor(() => expect(view.queryByLabelText('Ouvrir le parrainage')).toBeNull());
         navigate.mockRestore();
     });
 
-    it('binds signed-in deep links to the explicit apply route without applying', async () => {
-        const referral = referralRoot();
-        let openApplyScreen: (() => boolean) | undefined;
-        const bindSignedInNavigation = vi.fn((open: () => boolean) => {
-            openApplyScreen = open;
-            return vi.fn();
-        });
-        referral.linkCoordinator.bindSignedInNavigation = bindSignedInNavigation;
-        const navigate = vi.spyOn(mainNavigationRef, 'navigate').mockImplementation(() => undefined);
-        await render(<MainNavigator onLogout={vi.fn()} referral={referral} wallet={walletRoot()} />);
-        expect(bindSignedInNavigation).toHaveBeenCalledOnce();
-        expect(openApplyScreen?.()).toBe(true);
-        expect(navigate).toHaveBeenCalledWith('ApplyReferralCode');
-        expect(referral.flow.applyPromoCode).not.toHaveBeenCalled();
-        navigate.mockRestore();
+    it.each([false, undefined])('does not declare referral UI when enabled is %s', async (enabled) => {
+        const referral = referralRoot(enabled === true);
+        if (enabled === undefined) referral.availability.resetForSessionReplacement();
+        const view = await render(<MainNavigator onLogout={vi.fn()} referral={referral} wallet={walletRoot()} />);
+        expect(view.queryByLabelText('Ouvrir le parrainage')).toBeNull();
+    });
+
+    it('does not contain the retired post-registration apply screen or route', () => {
+        const mobileSourceRoot = join(__dirname, '..');
+        const productionFiles = productionTypeScriptFiles(mobileSourceRoot);
+
+        expect(productionFiles.some((path) => /ApplyReferralCodeScreen/.test(path))).toBe(false);
+        expect(
+            productionFiles.filter((path) =>
+                /ApplyReferralCodeScreen|ApplyReferralCode|ReferralApplication/.test(readFileSync(path, 'utf8')),
+            ),
+        ).toEqual([]);
     });
 });
+
+function productionTypeScriptFiles(directory: string): string[] {
+    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) return productionTypeScriptFiles(path);
+        return /\.tsx?$/.test(entry.name) && !/\.spec\.tsx?$/.test(entry.name) ? [path] : [];
+    });
+}
 
 function walletRoot(): WalletCompositionRoot {
     const store = new WalletStore();
@@ -56,12 +66,14 @@ function walletRoot(): WalletCompositionRoot {
         flow: { retry: vi.fn(), refresh: vi.fn(), loadNextPage: vi.fn() },
     } as unknown as WalletCompositionRoot;
 }
-
-function referralRoot(): ReferralCompositionRoot {
+function referralRoot(enabled: boolean): ReferralCompositionRoot {
+    const availability = new FeatureAvailabilityStore();
+    availability.finishRefresh(availability.beginRefresh(), enabled);
     return {
+        availability,
         store: new ReferralStore(),
-        flow: { retry: vi.fn(), refresh: vi.fn(), loadNextPage: vi.fn(), applyPromoCode: vi.fn() },
+        flow: { retry: vi.fn(), refresh: vi.fn(), loadNextPage: vi.fn() },
         nativeActions: { copyPromoCode: vi.fn(), shareReferralLink: vi.fn() },
-        linkCoordinator: { bindSignedInNavigation: vi.fn(() => vi.fn()) },
+        linkCoordinator: {},
     } as unknown as ReferralCompositionRoot;
 }

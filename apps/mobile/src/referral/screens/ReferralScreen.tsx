@@ -10,15 +10,17 @@ import type { ReferralStore } from '../stores/referral.store';
 import type { Observable } from 'rxjs';
 
 interface ReferralScreenProps {
+    available: boolean;
     store: ReferralStore;
     commands: ReferralCommands;
     nativeActions: ReferralNativeCommands;
-    onApplyCode?(): void;
     onBack?(): void;
 }
 
 export const ReferralScreen = observer(
-    ({ store, commands, nativeActions, onApplyCode, onBack }: ReferralScreenProps): React.JSX.Element => {
+    ({ available, store, commands, nativeActions, onBack }: ReferralScreenProps): React.JSX.Element => {
+        if (!available) return <></>;
+
         if (store.viewState === 'initial' || store.viewState === 'loading') {
             return (
                 <SafeAreaView style={styles.safeArea}>
@@ -133,17 +135,6 @@ export const ReferralScreen = observer(
                             <Text style={styles.summaryValue}>{referral.creditedInvitationCount}</Text>
                         </View>
                     </View>
-
-                    {referral.eligibility === 'OPEN' && onApplyCode ? (
-                        <Pressable
-                            accessibilityLabel="Appliquer un code promo"
-                            accessibilityRole="button"
-                            onPress={onApplyCode}
-                            style={styles.applyButton}
-                        >
-                            <Text style={styles.applyButtonText}>J’ai reçu un code</Text>
-                        </Pressable>
-                    ) : null}
 
                     <View style={styles.historyHeader}>
                         <Text style={styles.historyTitle}>Invitations créditées</Text>
@@ -290,15 +281,6 @@ const styles = StyleSheet.create({
     summaryCard: { backgroundColor: '#fff', borderRadius: 20, flex: 1, padding: 18 },
     summaryLabel: { color: '#7b8c86', fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
     summaryValue: { color: '#153a34', fontSize: 22, fontWeight: '900', marginTop: 7 },
-    applyButton: {
-        alignItems: 'center',
-        borderColor: '#8bbdb3',
-        borderRadius: 15,
-        borderWidth: 1,
-        marginTop: 14,
-        padding: 14,
-    },
-    applyButtonText: { color: '#087f73', fontSize: 14, fontWeight: '900' },
     historyHeader: {
         alignItems: 'baseline',
         flexDirection: 'row',

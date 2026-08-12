@@ -1,23 +1,13 @@
 import { action, computed, makeObservable, observable } from 'mobx';
 
-import type {
-    MyReferral,
-    ReferralApplication,
-    ReferralInvitation,
-    ReferralInvitationPage,
-} from '../../api/referral-api';
+import type { MyReferral, ReferralInvitation, ReferralInvitationPage } from '../../api/referral-api';
 
 export interface ReferralPresentationError {
     code: string;
     retryable: boolean;
 }
 
-export interface ReferralApplyError extends ReferralPresentationError {
-    kind: 'validation' | 'closed' | 'conflict' | 'service';
-}
-
 export type ReferralViewState = 'initial' | 'loading' | 'empty' | 'loaded' | 'error';
-export type ReferralApplyState = 'idle' | 'applying' | 'success' | 'validation-error' | 'closed' | 'error';
 
 export class ReferralStore {
     myReferral: MyReferral | undefined = undefined;
@@ -28,16 +18,11 @@ export class ReferralStore {
     refreshing = false;
     loadingNextPage = false;
     error: ReferralPresentationError | undefined = undefined;
-    applyCode = '';
-    applyState: ReferralApplyState = 'idle';
-    applyResult: ReferralApplication | undefined = undefined;
-    applyError: ReferralApplyError | undefined = undefined;
 
     private generation = 0;
     private initialToken: number | undefined;
     private refreshToken: number | undefined;
     private nextPageToken: number | undefined;
-    private applyToken: number | undefined;
 
     constructor() {
         makeObservable(this, {
@@ -49,10 +34,6 @@ export class ReferralStore {
             refreshing: observable,
             loadingNextPage: observable,
             error: observable.ref,
-            applyCode: observable,
-            applyState: observable,
-            applyResult: observable.ref,
-            applyError: observable.ref,
             viewState: computed,
             beginInitialLoad: action.bound,
             finishInitialLoad: action.bound,
@@ -63,12 +44,6 @@ export class ReferralStore {
             beginNextPage: action.bound,
             finishNextPage: action.bound,
             failNextPage: action.bound,
-            prefillPromoCode: action.bound,
-            setApplyCode: action.bound,
-            beginApply: action.bound,
-            finishApply: action.bound,
-            failApply: action.bound,
-            clearApplyFeedback: action.bound,
             clear: action.bound,
         });
     }
@@ -125,10 +100,8 @@ export class ReferralStore {
     }
 
     beginNextPage(): number | undefined {
-        if (!this.hasMore || !this.nextCursor || this.loadingNextPage || this.initialLoading || this.refreshing) {
-            return undefined;
-        }
-        const token = this.nextToken();
+        if (!this.hasMore || !this.nextCursor || this.loadingNextPage || this.initialLoading || this.refreshing) return undefined;
+        const token = ++this.generation;
         this.nextPageToken = token;
         this.loadingNextPage = true;
         this.error = undefined;
@@ -153,61 +126,11 @@ export class ReferralStore {
         this.error = error;
     }
 
-    prefillPromoCode(value: string): void {
-        if (this.myReferral?.eligibility === 'ATTACHED') return;
-        this.setApplyCode(value);
-    }
-
-    setApplyCode(value: string): void {
-        if (this.applyState === 'applying' || this.myReferral?.eligibility === 'ATTACHED') return;
-        this.applyCode = value.trim().toUpperCase().slice(0, 64);
-        this.clearApplyFeedback();
-    }
-
-    beginApply(): number | undefined {
-        if (!this.applyCode || this.applyState === 'applying' || this.myReferral?.eligibility === 'ATTACHED') {
-            return undefined;
-        }
-        const token = this.nextToken();
-        this.applyToken = token;
-        this.applyState = 'applying';
-        this.applyError = undefined;
-        this.applyResult = undefined;
-        return token;
-    }
-
-    finishApply(token: number, result: ReferralApplication): void {
-        if (token !== this.applyToken) return;
-        this.applyToken = undefined;
-        this.applyState = 'success';
-        this.applyResult = result;
-        this.applyCode = result.promoCode;
-        if (this.myReferral) {
-            this.myReferral = { ...this.myReferral, eligibility: 'ATTACHED', attachedPromoCode: result.promoCode };
-        }
-    }
-
-    failApply(token: number, error: ReferralApplyError): void {
-        if (token !== this.applyToken) return;
-        this.applyToken = undefined;
-        this.applyError = error;
-        this.applyState =
-            error.kind === 'validation' ? 'validation-error' : error.kind === 'closed' ? 'closed' : 'error';
-    }
-
-    clearApplyFeedback(): void {
-        this.applyToken = undefined;
-        this.applyState = 'idle';
-        this.applyResult = undefined;
-        this.applyError = undefined;
-    }
-
     clear(): void {
         this.generation += 1;
         this.initialToken = undefined;
         this.refreshToken = undefined;
         this.nextPageToken = undefined;
-        this.applyToken = undefined;
         this.myReferral = undefined;
         this.invitations = [];
         this.nextCursor = null;
@@ -216,14 +139,10 @@ export class ReferralStore {
         this.refreshing = false;
         this.loadingNextPage = false;
         this.error = undefined;
-        this.applyCode = '';
-        this.applyState = 'idle';
-        this.applyResult = undefined;
-        this.applyError = undefined;
     }
 
     private invalidateRequests(): number {
-        const token = this.nextToken();
+        const token = ++this.generation;
         this.initialToken = undefined;
         this.refreshToken = undefined;
         this.nextPageToken = undefined;
@@ -233,22 +152,11 @@ export class ReferralStore {
         return token;
     }
 
-    private nextToken(): number {
-        this.generation += 1;
-        return this.generation;
-    }
-
     private replaceData(referral: MyReferral, page: ReferralInvitationPage): void {
         this.myReferral = referral;
         this.invitations = [...page.items];
         this.nextCursor = page.nextCursor;
         this.hasMore = page.hasMore;
         this.error = undefined;
-        if (referral.attachedPromoCode) {
-            this.applyCode = referral.attachedPromoCode;
-            this.applyState = 'success';
-        } else if (referral.eligibility === 'CLOSED') {
-            this.applyState = 'closed';
-        }
     }
 }

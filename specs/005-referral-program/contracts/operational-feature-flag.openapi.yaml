@@ -1,0 +1,91 @@
+openapi: 3.1.0
+info:
+  title: Kaynann Referral Operational API
+  version: 0.1.0
+  description: Protected internal runtime control; excluded from public Swagger output.
+servers:
+  - url: "{operationsUrl}"
+    variables:
+      operationsUrl:
+        default: http://localhost:3000
+security:
+  - operationsBearer: []
+paths:
+  /internal/feature-flags/referral-program:
+    get:
+      operationId: getReferralProgramFeatureState
+      responses:
+        "200":
+          description: Authoritative state
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferralFeatureState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    put:
+      operationId: setReferralProgramFeatureState
+      description: Idempotently set the authoritative runtime state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Accepted authoritative state after the toggle boundary
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferralFeatureState" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  securitySchemes:
+    operationsBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-internal-token
+  schemas:
+    ReferralFeatureState:
+      type: object
+      additionalProperties: false
+      required: [key, enabled, revision, updatedAt]
+      properties:
+        key: { type: string, const: REFERRAL_PROGRAM }
+        enabled: { type: boolean }
+        revision: { type: string, pattern: "^[1-9][0-9]*$" }
+        updatedAt: { type: string, format: date-time }
+    OperationalError:
+      type: object
+      additionalProperties: false
+      required: [statusCode, message]
+      properties:
+        statusCode: { type: integer }
+        message: { type: string }
+  responses:
+    BadRequest:
+      description: Strict body validation failed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/OperationalError" }
+    Unauthorized:
+      description: Missing or invalid operations credential; no state is returned
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/OperationalError" }
+    Unavailable:
+      description: Authoritative storage is unavailable
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/OperationalError" }

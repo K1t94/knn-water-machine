@@ -54,13 +54,12 @@ describePostgres('existing-user referral provisioning', () => {
             alreadyPresent: 3,
         });
         expect(await fixture.prisma.referralPromoCode.findMany({ orderBy: { userId: 'asc' } })).toEqual(firstCodes);
-        expect(await fixture.prisma.referralEligibility.count()).toBe(3);
         expect(await fixture.prisma.referralRelationship.count()).toBe(0);
         expect(await fixture.prisma.referralBonusEntitlement.count()).toBe(0);
         expect(await fixture.prisma.walletLedgerEntry.count()).toBe(0);
     });
 
-    it('concurrent lazy repair converges on one stable promo and OPEN eligibility', async () => {
+    it('concurrent lazy repair converges on one stable promo without eligibility or bonus side effects', async () => {
         const userId = await insertReferralTestUser(fixture.prisma, '2000004');
 
         const results = await Promise.all(
@@ -68,8 +67,7 @@ describePostgres('existing-user referral provisioning', () => {
         );
         expect(new Set(results.map(({ promoCode }) => promoCode)).size).toBe(1);
         expect(await fixture.prisma.referralPromoCode.count({ where: { userId } })).toBe(1);
-        expect(await fixture.prisma.referralEligibility.findUniqueOrThrow({ where: { userId } })).toMatchObject({
-            status: 'OPEN',
-        });
+        expect(await fixture.prisma.referralBonusEntitlement.count({ where: { beneficiaryUserId: userId } })).toBe(0);
+        expect(await fixture.prisma.walletLedgerEntry.count({ where: { walletUserId: userId } })).toBe(0);
     });
 });

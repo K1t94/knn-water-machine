@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -20,20 +21,54 @@ const describePostgres = referralPostgresEnabled ? describe : describe.skip;
 const featureTwoMigrations = ['20260722000000_bootstrap_connectivity', '20260728000100_phone_otp_auth'];
 const featureFourMigrations = [...featureTwoMigrations, '20260804000100_water_wallet_ledger'];
 const referralMigration = '20260806000100_add_referral_program';
+const preFeatureStateMigrations = [...featureFourMigrations, referralMigration];
+const featureStateMigration = '20260812000100_add_referral_feature_state';
+const preContractMigrations = [...preFeatureStateMigrations, featureStateMigration];
+
+interface PreservedRowCounts {
+    readonly bonusEntitlements: number;
+    readonly ledgerEntries: number;
+    readonly promoCodes: number;
+    readonly relationships: number;
+    readonly users: number;
+    readonly wallets: number;
+}
+
+async function readPreservedRowCounts(prisma: PrismaClient): Promise<PreservedRowCounts> {
+    const [bonusEntitlements, ledgerEntries, promoCodes, relationships, users, wallets] = await Promise.all([
+        prisma.referralBonusEntitlement.count(),
+        prisma.walletLedgerEntry.count(),
+        prisma.referralPromoCode.count(),
+        prisma.referralRelationship.count(),
+        prisma.user.count(),
+        prisma.waterWallet.count(),
+    ]);
+
+    return { bonusEntitlements, ledgerEntries, promoCodes, relationships, users, wallets };
+}
 
 describePostgres('referral migration invariants', () => {
     let fresh: ReferralPostgresSchema;
     let featureTwo: ReferralPostgresSchema;
     let featureFour: ReferralPostgresSchema;
+    let referralUpgrade: ReferralPostgresSchema;
     let featureTwoDirectory = '';
     let featureFourDirectory = '';
+    let referralUpgradeDirectory = '';
     let inviterId = '';
     let inviteeId = '';
+    let preservedInviterId = '';
+    let preservedInviteeId = '';
+    let preservedRelationshipId = '';
+    let preservedEntitlementId = '';
+    let preservedRowCounts: PreservedRowCounts;
+    let preservedEligibilityCount = 0n;
 
     beforeAll(async () => {
         fresh = await createReferralPostgresSchema('migration_fresh');
         featureTwo = await createReferralPostgresSchema('migration_feature2');
         featureFour = await createReferralPostgresSchema('migration_feature4');
+        referralUpgrade = await createReferralPostgresSchema('migration_referral_upgrade');
         fresh.deploy();
 
         featureTwoDirectory = createMigrationSubset('feature2', featureTwoMigrations);
@@ -55,10 +90,62 @@ describePostgres('referral migration invariants', () => {
         await featureFour.prisma.waterWallet.create({ data: { userId: preservedFeatureFourUser } });
         featureFour.deploy();
 
+        referralUpgradeDirectory = createMigrationSubset('referral-upgrade', preContractMigrations);
+        referralUpgrade.deploy(join(referralUpgradeDirectory, 'prisma/schema.prisma'));
+        preservedInviterId = await insertReferralTestUser(referralUpgrade.prisma, '1000006');
+        preservedInviteeId = await insertReferralTestUser(referralUpgrade.prisma, '1000007');
+        await referralUpgrade.prisma.waterWallet.create({ data: { userId: preservedInviterId, balanceMl: 100n } });
+        await referralUpgrade.prisma.walletLedgerEntry.create({
+            data: {
+                walletUserId: preservedInviterId,
+                businessEventKey: `migration-preserved:${randomUUID()}`,
+                direction: 'CREDIT',
+                amountMl: 100n,
+                operationKind: 'MIGRATION_PRESERVATION_TEST',
+                source: 'TEST',
+                balanceAfterMl: 100n,
+                occurredAt: new Date('2026-08-12T00:00:00.000Z'),
+            },
+        });
+        await referralUpgrade.prisma.referralPromoCode.create({
+            data: { userId: preservedInviterId, code: '3456789ABCDE' },
+        });
+        await referralUpgrade.prisma.$executeRawUnsafe(
+            `INSERT INTO "ReferralEligibility" ("userId", "updatedAt") VALUES ($1::uuid, NOW())`,
+            preservedInviteeId,
+        );
+        const preservedRelationship = await referralUpgrade.prisma.referralRelationship.create({
+            data: {
+                inviterUserId: preservedInviterId,
+                inviteeUserId: preservedInviteeId,
+                channel: 'REGISTRATION',
+            },
+        });
+        preservedRelationshipId = preservedRelationship.id;
+        preservedEntitlementId = randomUUID();
+        await referralUpgrade.prisma.referralBonusEntitlement.create({
+            data: {
+                id: preservedEntitlementId,
+                kind: 'INVITER',
+                beneficiaryUserId: preservedInviterId,
+                relationshipId: preservedRelationship.id,
+                amountMl: 5_000n,
+                walletBusinessEventKey: `referral_bonus:${preservedEntitlementId}`,
+                walletOperationKind: 'REFERRAL_INVITER_BONUS',
+                walletSource: 'REFERRAL_PROGRAM',
+                occurredAt: new Date('2026-08-12T00:00:00.000Z'),
+                nextAttemptAt: new Date('2026-08-12T00:00:00.000Z'),
+            },
+        });
+        preservedRowCounts = await readPreservedRowCounts(referralUpgrade.prisma);
+        [{ count: preservedEligibilityCount }] = await referralUpgrade.prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+            `SELECT COUNT(*)::bigint AS count FROM "ReferralEligibility"`,
+        );
+        referralUpgrade.deploy();
+
         inviterId = await insertReferralTestUser(fresh.prisma, '1000003');
         inviteeId = await insertReferralTestUser(fresh.prisma, '1000004');
         await fresh.prisma.referralPromoCode.create({ data: { userId: inviterId, code: '23456789ABCD' } });
-        await fresh.prisma.referralEligibility.create({ data: { userId: inviteeId, updatedAt: new Date() } });
     }, 90_000);
 
     afterAll(async () => {
@@ -66,9 +153,11 @@ describePostgres('referral migration invariants', () => {
             disposeReferralPostgresSchema(fresh),
             disposeReferralPostgresSchema(featureTwo),
             disposeReferralPostgresSchema(featureFour),
+            disposeReferralPostgresSchema(referralUpgrade),
         ]);
         if (featureTwoDirectory) removeMigrationSubset(featureTwoDirectory);
         if (featureFourDirectory) removeMigrationSubset(featureFourDirectory);
+        if (referralUpgradeDirectory) removeMigrationSubset(referralUpgradeDirectory);
     });
 
     it('applies to fresh, feature-002, and feature-004 schemas without data backfill', async () => {
@@ -78,7 +167,7 @@ describePostgres('referral migration invariants', () => {
         );
         expect(tables.map(({ tableName }) => tableName)).toEqual([
             'ReferralBonusEntitlement',
-            'ReferralEligibility',
+            'ReferralFeatureState',
             'ReferralPromoCode',
             'ReferralRelationship',
         ]);
@@ -88,6 +177,75 @@ describePostgres('referral migration invariants', () => {
         expect(await featureFour.prisma.waterWallet.count()).toBe(1);
         expect(await featureFour.prisma.referralPromoCode.count()).toBe(0);
         expect(await featureFour.prisma.referralBonusEntitlement.count()).toBe(0);
+    });
+
+    it('contracts eligibility without changing users, referral facts, wallets, or ledger rows', async () => {
+        expect(preservedEligibilityCount).toBe(1n);
+        expect(await readPreservedRowCounts(referralUpgrade.prisma)).toEqual(preservedRowCounts);
+        expect(await referralUpgrade.prisma.referralFeatureState.findMany()).toEqual([
+            expect.objectContaining({ key: 'REFERRAL_PROGRAM', enabled: true, revision: 1n }),
+        ]);
+        await expect(
+            referralUpgrade.prisma.user.findMany({ where: { id: { in: [preservedInviterId, preservedInviteeId] } } }),
+        ).resolves.toHaveLength(2);
+        await expect(
+            referralUpgrade.prisma.referralRelationship.findUniqueOrThrow({ where: { id: preservedRelationshipId } }),
+        ).resolves.toMatchObject({ inviterUserId: preservedInviterId, inviteeUserId: preservedInviteeId });
+        await expect(
+            referralUpgrade.prisma.referralBonusEntitlement.findUniqueOrThrow({
+                where: { id: preservedEntitlementId },
+            }),
+        ).resolves.toMatchObject({ beneficiaryUserId: preservedInviterId, relationshipId: preservedRelationshipId });
+    });
+
+    it('removes eligibility storage and its generated Prisma client delegate', async () => {
+        const tables = await referralUpgrade.prisma.$queryRawUnsafe<Array<{ tableName: string }>>(
+            `SELECT table_name AS "tableName" FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'ReferralEligibility'`,
+            referralUpgrade.name,
+        );
+        const databaseObjects = await referralUpgrade.prisma.$queryRawUnsafe<Array<{ name: string }>>(
+            `SELECT typname AS name FROM pg_type JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace WHERE pg_namespace.nspname = $1 AND typname = 'ReferralEligibilityStatus'
+             UNION ALL
+             SELECT proname AS name FROM pg_proc JOIN pg_namespace ON pg_namespace.oid = pg_proc.pronamespace WHERE pg_namespace.nspname = $1 AND proname = 'enforce_referral_eligibility_transition'`,
+            referralUpgrade.name,
+        );
+
+        expect(tables).toEqual([]);
+        expect(databaseObjects).toEqual([]);
+        expect('referralEligibility' in referralUpgrade.prisma).toBe(false);
+    });
+
+    it('keeps the seed idempotent and enforces a positive revision', async () => {
+        await referralUpgrade.prisma.$executeRawUnsafe(`
+            INSERT INTO "ReferralFeatureState" ("key", "enabled", "revision", "updatedAt")
+            VALUES ('REFERRAL_PROGRAM', true, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT ("key") DO NOTHING
+        `);
+        expect(await referralUpgrade.prisma.referralFeatureState.count()).toBe(1);
+        await expectPostgresError(
+            referralUpgrade.prisma.referralFeatureState.update({
+                where: { key: 'REFERRAL_PROGRAM' },
+                data: { revision: 0n },
+            }),
+            'ReferralFeatureState_revision_positive_check',
+        );
+    });
+
+    it('retains an authoritative state change across a new Prisma connection', async () => {
+        await referralUpgrade.prisma.referralFeatureState.update({
+            where: { key: 'REFERRAL_PROGRAM' },
+            data: { enabled: false, revision: 2n },
+        });
+
+        const restartedClient = new PrismaClient({ datasourceUrl: referralUpgrade.url });
+        try {
+            await restartedClient.$connect();
+            await expect(
+                restartedClient.referralFeatureState.findUniqueOrThrow({ where: { key: 'REFERRAL_PROGRAM' } }),
+            ).resolves.toEqual(expect.objectContaining({ enabled: false, revision: 2n }));
+        } finally {
+            await restartedClient.$disconnect();
+        }
     });
 
     it('assigns appliedAt and monotonic sequence in PostgreSQL', async () => {
@@ -164,37 +322,24 @@ describePostgres('referral migration invariants', () => {
         );
     });
 
-    it('allows only OPEN eligibility transitions', async () => {
-        await fresh.prisma.referralEligibility.update({
-            where: { userId: inviteeId },
-            data: { status: 'ATTACHED' },
-        });
-        await expectPostgresError(
-            fresh.prisma.referralEligibility.update({ where: { userId: inviteeId }, data: { status: 'OPEN' } }),
-            'referral_eligibility_invalid_transition',
-        );
-        await expectPostgresError(
-            fresh.prisma.referralEligibility.delete({ where: { userId: inviteeId } }),
-            'referral_eligibility_immutable_identity',
-        );
-    });
-
     it('reports named constraints and rolls back partial writes', async () => {
         await expectPostgresError(
             fresh.prisma.referralPromoCode.create({ data: { userId: inviteeId, code: 'INVALID_CODE' } }),
             'ReferralPromoCode_code_format_check',
         );
+        const userCountBefore = await fresh.prisma.user.count();
         await expectPostgresError(
             fresh.prisma.$transaction(async (transaction) => {
                 const userId = await insertReferralTestUser(transaction, '1000005');
                 await transaction.referralPromoCode.create({ data: { userId, code: '3456789ABCDE' } });
-                await transaction.referralEligibility.create({
-                    data: { userId, status: 'CLOSED', updatedAt: new Date() },
+                await transaction.referralRelationship.create({
+                    data: { inviterUserId: userId, inviteeUserId: userId, channel: 'REGISTRATION' },
                 });
             }),
-            'ReferralEligibility_closed_shape_check',
+            'ReferralRelationship_no_self_referral_check',
         );
         expect(await fresh.prisma.referralPromoCode.count({ where: { code: '3456789ABCDE' } })).toBe(0);
+        expect(await fresh.prisma.user.count()).toBe(userCountBefore);
     });
 
     it('rolls back all referral DDL when the migration fails', async () => {

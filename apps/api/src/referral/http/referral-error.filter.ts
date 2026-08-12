@@ -27,7 +27,7 @@ export class ReferralErrorFilter implements ExceptionFilter {
             error: {
                 code: mapped.code,
                 message: mapped.message,
-                retryable: mapped.status === HttpStatus.SERVICE_UNAVAILABLE,
+                retryable: mapped.retryable ?? mapped.status === HttpStatus.SERVICE_UNAVAILABLE,
                 requestId: suppliedRequestId?.slice(0, 128) || randomUUID(),
             },
         };
@@ -43,19 +43,22 @@ function mapReferralError(
     code: ReferralPublicErrorResponseDto['error']['code'];
     message: string;
     status: number;
+    retryable?: boolean;
 } {
     if (error instanceof ReferralError) {
+        if (error.code === 'FEATURE_DISABLED') {
+            return {
+                code: 'FEATURE_DISABLED',
+                message: 'Referral program is disabled.',
+                status: HttpStatus.SERVICE_UNAVAILABLE,
+                retryable: false,
+            };
+        }
         if (error.code === 'REFERRAL_CODE_UNAVAILABLE') {
             return unavailableCode();
         }
         if (error.code === 'REFERRAL_SELF_NOT_ALLOWED') {
             return conflict(error.code, 'You cannot use your own referral code.');
-        }
-        if (error.code === 'REFERRAL_ALREADY_ATTACHED') {
-            return conflict(error.code, 'A different referral code is already attached.');
-        }
-        if (error.code === 'REFERRAL_ELIGIBILITY_CLOSED') {
-            return conflict(error.code, 'Referral code application is no longer available.');
         }
         if (error.code === 'REFERRAL_CURSOR_INVALID') {
             return invalidCursor();
@@ -89,9 +92,6 @@ function invalidCursor() {
     };
 }
 
-function conflict(
-    code: 'REFERRAL_SELF_NOT_ALLOWED' | 'REFERRAL_ALREADY_ATTACHED' | 'REFERRAL_ELIGIBILITY_CLOSED',
-    message: string,
-) {
+function conflict(code: 'REFERRAL_SELF_NOT_ALLOWED', message: string) {
     return { code, message, status: HttpStatus.CONFLICT };
 }

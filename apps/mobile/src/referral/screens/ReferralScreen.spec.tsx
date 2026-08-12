@@ -15,7 +15,9 @@ describe('ReferralScreen', () => {
         const store = new ReferralStore();
         const commands = createCommands();
         const token = store.beginInitialLoad();
-        const view = await render(<ReferralScreen commands={commands} nativeActions={nativeActions} store={store} />);
+        const view = await render(
+            <ReferralScreen available commands={commands} nativeActions={nativeActions} store={store} />,
+        );
 
         expect(view.getByLabelText('Chargement du parrainage')).toBeTruthy();
 
@@ -33,9 +35,9 @@ describe('ReferralScreen', () => {
         const onBack = vi.fn();
         const view = await render(
             <ReferralScreen
+                available
                 commands={commands}
                 nativeActions={{ copyPromoCode, shareReferralLink }}
-                onApplyCode={vi.fn()}
                 onBack={onBack}
                 store={store}
             />,
@@ -63,7 +65,9 @@ describe('ReferralScreen', () => {
             page([invitation('00000000-0000-4000-8000-000000000001', '**42')], 'next', true),
         );
         const commands = createCommands();
-        const view = await render(<ReferralScreen commands={commands} nativeActions={nativeActions} store={store} />);
+        const view = await render(
+            <ReferralScreen available commands={commands} nativeActions={nativeActions} store={store} />,
+        );
 
         expect(view.getByText('**42')).toBeTruthy();
         expect(view.queryByText(/77\s?123/)).toBeNull();
@@ -97,20 +101,84 @@ describe('ReferralScreen', () => {
         expect(view.getByText('Toutes les invitations sont affichées')).toBeTruthy();
     });
 
-    it('renders 250 owner-safe invitation rows without exposing phone numbers', async () => {
+    it('traverses 250 owner-safe invitation rows without duplicates or exposed phone numbers', async () => {
         const invitations = Array.from({ length: 250 }, (_, index) =>
             invitation(`invitation-${String(index).padStart(3, '0')}`, `**${String(index % 100).padStart(2, '0')}`),
         );
+        const store = loadedStore(myReferral(), page(invitations.slice(0, 100), 'cursor-100', true));
         const view = await render(
             <ReferralScreen
+                available
                 commands={createCommands()}
                 nativeActions={nativeActions}
-                store={loadedStore(myReferral(), page(invitations))}
+                store={store}
             />,
         );
 
+        await act(() => {
+            const token = store.beginNextPage();
+            store.finishNextPage(token!, page(invitations.slice(100, 200), 'cursor-200', true));
+        });
+        await act(() => {
+            const token = store.beginNextPage();
+            store.finishNextPage(token!, page(invitations.slice(200)));
+        });
+
         expect(view.getAllByLabelText(/^Invitation \*\*\d{2}$/)).toHaveLength(250);
+        expect(new Set(store.invitations.map(({ id }) => id)).size).toBe(250);
         expect(view.queryByText(/\+221|77\s?\d{3}/)).toBeNull();
+    });
+
+    it('suppresses loaded content while unavailable and rejects a stale page before re-enable reload', async () => {
+        const store = loadedStore(
+            myReferral(),
+            page([invitation('00000000-0000-4000-8000-000000000001', '**42')], 'next', true),
+        );
+        const view = await render(
+            <ReferralScreen available commands={createCommands()} nativeActions={nativeActions} store={store} />,
+        );
+        let staleToken: number | undefined;
+        await act(() => {
+            staleToken = store.beginNextPage();
+        });
+
+        await act(() => store.clear());
+        await act(() =>
+            view.rerender(
+                <ReferralScreen
+                    available={false}
+                    commands={createCommands()}
+                    nativeActions={nativeActions}
+                    store={store}
+                />,
+            ),
+        );
+        await act(() =>
+            store.finishNextPage(
+                staleToken!,
+                page([invitation('00000000-0000-4000-8000-000000000002', '**09')]),
+            ),
+        );
+
+        expect(view.queryByLabelText('Contenu du parrainage')).toBeNull();
+        expect(view.queryByLabelText('Chargement du parrainage')).toBeNull();
+        expect(store.invitations).toEqual([]);
+
+        await act(() => {
+            const reloadToken = store.beginInitialLoad();
+            store.finishInitialLoad(
+                reloadToken,
+                myReferral(),
+                page([invitation('00000000-0000-4000-8000-000000000003', '**17')]),
+            );
+        });
+        await act(() =>
+            view.rerender(
+                <ReferralScreen available commands={createCommands()} nativeActions={nativeActions} store={store} />,
+            ),
+        );
+        expect(view.getByText('**17')).toBeTruthy();
+        expect(view.queryByText('**09')).toBeNull();
     });
 });
 
@@ -119,9 +187,8 @@ const nativeActions: ReferralNativeCommands = {
     shareReferralLink: () => of(undefined),
 };
 
-function createCommands(): ReferralCommands &
-    Record<'retry' | 'refresh' | 'loadNextPage' | 'applyPromoCode', ReturnType<typeof vi.fn>> {
-    return { retry: vi.fn(), refresh: vi.fn(), loadNextPage: vi.fn(), applyPromoCode: vi.fn() };
+function createCommands(): ReferralCommands & Record<'retry' | 'refresh' | 'loadNextPage', ReturnType<typeof vi.fn>> {
+    return { retry: vi.fn(), refresh: vi.fn(), loadNextPage: vi.fn() };
 }
 
 function loadedStore(referral: MyReferral, invitations: ReferralInvitationPage): ReferralStore {
@@ -135,8 +202,6 @@ function myReferral(): MyReferral {
     return {
         promoCode: 'ABCD2345WXYZ',
         referralLink: 'kaynann://register?promo=ABCD2345WXYZ',
-        eligibility: 'OPEN',
-        attachedPromoCode: null,
         currentInviterRewardMl: '5000',
         creditedInviterBonusMl: '15000',
         creditedInvitationCount: 3,

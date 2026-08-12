@@ -27,14 +27,13 @@ export class ReferralPromoProvisioner implements ReferralProvisioningRepository 
                 id: true,
                 createdAt: true,
                 referralPromoCode: { select: { userId: true } },
-                referralEligibility: { select: { userId: true } },
             },
         });
 
         return users.map((user) => ({
             userId: user.id,
             createdAt: user.createdAt,
-            provisioned: user.referralPromoCode !== null && user.referralEligibility !== null,
+            provisioned: user.referralPromoCode !== null,
         }));
     }
 
@@ -44,21 +43,13 @@ export class ReferralPromoProvisioner implements ReferralProvisioningRepository 
         for (let attempt = 0; attempt < PROMO_CODE_COLLISION_ATTEMPTS; attempt += 1) {
             const existing = await this.findExistingCode(input.userId);
             if (existing !== null) {
-                await this.ensureEligibility(input.userId);
                 return { promoCode: existing, created: false, collisionCount };
             }
 
             const candidate = generatePromoCode();
             try {
-                await this.prisma.$transaction(async (transaction) => {
-                    await transaction.referralPromoCode.create({
-                        data: { userId: input.userId, code: candidate },
-                    });
-                    await transaction.referralEligibility.upsert({
-                        where: { userId: input.userId },
-                        create: { userId: input.userId, updatedAt: new Date() },
-                        update: {},
-                    });
+                await this.prisma.referralPromoCode.create({
+                    data: { userId: input.userId, code: candidate },
                 });
                 return { promoCode: candidate, created: true, collisionCount };
             } catch (error: unknown) {
@@ -66,7 +57,6 @@ export class ReferralPromoProvisioner implements ReferralProvisioningRepository 
 
                 const concurrentCode = await this.findExistingCode(input.userId);
                 if (concurrentCode !== null) {
-                    await this.ensureEligibility(input.userId);
                     return { promoCode: concurrentCode, created: false, collisionCount };
                 }
                 collisionCount += 1;
@@ -84,13 +74,6 @@ export class ReferralPromoProvisioner implements ReferralProvisioningRepository 
         return (existing?.code as PromoCode | undefined) ?? null;
     }
 
-    private async ensureEligibility(userId: string): Promise<void> {
-        await this.prisma.referralEligibility.upsert({
-            where: { userId },
-            create: { userId, updatedAt: new Date() },
-            update: {},
-        });
-    }
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

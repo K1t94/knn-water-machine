@@ -30,6 +30,8 @@
         "verify:phone-auth-performance": "pnpm build:api && node scripts/verify-phone-auth-performance.mjs",
         "mobile:doctor": "node scripts/mobile-doctor.mjs",
         "mobile:prebuild": "pnpm --filter @kaynann/mobile prebuild",
+        "referral:enable": "node scripts/set-referral-feature.mjs enabled",
+        "referral:disable": "node scripts/set-referral-feature.mjs disabled",
         "check:env": "node scripts/check-env-example.mjs",
         "check:repo": "node scripts/check-repo-bootstrap.mjs"
     },

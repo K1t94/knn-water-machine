@@ -66,15 +66,13 @@ enum WalletDirection {
   DEBIT
 }
 
+enum ReferralFeatureKey {
+  REFERRAL_PROGRAM
+}
+
 enum ReferralApplicationChannel {
   REGISTRATION
   POST_REGISTRATION
-}
-
-enum ReferralEligibilityStatus {
-  OPEN
-  ATTACHED
-  CLOSED
 }
 
 enum ReferralBonusKind {
@@ -100,7 +98,6 @@ model User {
   sessions                  UserSession[]
   waterWallet               WaterWallet?
   referralPromoCode         ReferralPromoCode?
-  referralEligibility       ReferralEligibility?
   invitedReferrals          ReferralRelationship[]     @relation("ReferralInviter")
   receivedReferral          ReferralRelationship?      @relation("ReferralInvitee")
   referralBonusEntitlements ReferralBonusEntitlement[]
@@ -232,21 +229,18 @@ model WalletLedgerEntry {
   @@index([compensatesEntryId])
 }
 
+model ReferralFeatureState {
+  key       ReferralFeatureKey @id
+  enabled   Boolean            @default(true)
+  revision  BigInt             @default(1)
+  updatedAt DateTime           @default(now()) @updatedAt @db.Timestamptz(3)
+}
+
 model ReferralPromoCode {
   userId    String   @id @db.Uuid
   code      String   @unique @db.VarChar(12)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
-}
-
-model ReferralEligibility {
-  userId           String                    @id @db.Uuid
-  status           ReferralEligibilityStatus @default(OPEN)
-  closedByEventKey String?                   @unique @db.VarChar(200)
-  closedAt         DateTime?                 @db.Timestamptz(3)
-  createdAt        DateTime                  @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime                  @updatedAt @db.Timestamptz(3)
-  user             User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
 }
 
 model ReferralRelationship {

@@ -23,12 +23,6 @@ export class MyReferralResponseDto {
     @ApiProperty({ pattern: '^kaynann://register\\?promo=[23456789ABCDEFGHJKMNPQRSTVWXYZ]{12}$' })
     referralLink!: string;
 
-    @ApiProperty({ enum: ['OPEN', 'ATTACHED', 'CLOSED'] })
-    eligibility!: 'OPEN' | 'ATTACHED' | 'CLOSED';
-
-    @ApiProperty({ ...promoCodeProperty(), nullable: true, type: String })
-    attachedPromoCode!: string | null;
-
     @ApiProperty(millilitresProperty())
     currentInviterRewardMl!: string;
 
@@ -37,17 +31,6 @@ export class MyReferralResponseDto {
 
     @ApiProperty({ minimum: 0 })
     creditedInvitationCount!: number;
-}
-
-export class ApplyReferralCodeResponseDto {
-    @ApiProperty({ enum: ['ATTACHED', 'ALREADY_ATTACHED'] })
-    status!: 'ATTACHED' | 'ALREADY_ATTACHED';
-
-    @ApiProperty(promoCodeProperty())
-    promoCode!: string;
-
-    @ApiProperty({ format: 'date-time' })
-    appliedAt!: string;
 }
 
 export class ReferralInvitationResponseDto {

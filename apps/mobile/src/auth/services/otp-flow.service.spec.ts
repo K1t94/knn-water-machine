@@ -36,6 +36,23 @@ describe('OtpFlowService', () => {
         flow.dispose();
     });
 
+    it('omits pending promo context from OTP payload while referral availability is disabled', () => {
+        const requestOtp = vi.fn(() => of(issued()));
+        const api = {
+            requestOtp,
+            resendOtp: vi.fn(() => of(issued())),
+            verifyOtp: vi.fn(() => of({ nextStep: 'completeRegistration' as const })),
+        } satisfies OtpApi;
+        const store = new OtpStore();
+        const flow = new OtpFlowService(store, api, () => 'PROMO-1', undefined, () => false);
+        store.setPhone('771234567');
+
+        flow.requestOtp();
+
+        expect(requestOtp).toHaveBeenCalledWith({ phone: '+221771234567' });
+        flow.dispose();
+    });
+
     it('maps an offline failure without retry and permits an explicit recovery request', () => {
         const requestOtp = vi
             .fn()

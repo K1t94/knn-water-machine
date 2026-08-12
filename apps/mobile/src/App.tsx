@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { FetchAppConfigApi } from './api/app-config-api';
 import { FetchAuthApi } from './api/auth-api';
 import { FetchReferralApi } from './api/referral-api';
 import { FetchWalletApi } from './api/wallet-api';
@@ -37,7 +38,12 @@ export default function App(): React.JSX.Element {
         const subscription = getOrCreateInstallationId().subscribe({
             next: (id) => {
                 const api = new FetchAuthApi(apiUrl, id);
-                createdRoot = new AuthCompositionRoot(api, createSessionStorage(), createRegistrationStorage());
+                createdRoot = new AuthCompositionRoot(
+                    api,
+                    createSessionStorage(),
+                    createRegistrationStorage(),
+                    new FetchAppConfigApi(apiUrl),
+                );
                 createdWallet = new WalletCompositionRoot(
                     new FetchWalletApi(apiUrl),
                     createdRoot.sessionStore,
@@ -47,6 +53,7 @@ export default function App(): React.JSX.Element {
                     new FetchReferralApi(apiUrl),
                     createdRoot.sessionStore,
                     createdRoot.sessionFlow,
+                    createdRoot.featureAvailabilityStore,
                 );
                 setComposition({ api, referral: createdReferral, root: createdRoot, wallet: createdWallet });
                 createdRoot.sessionFlow.restore();
