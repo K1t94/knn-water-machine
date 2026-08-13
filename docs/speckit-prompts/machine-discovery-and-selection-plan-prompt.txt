@@ -1,0 +1,343 @@
+Сформируй implementation plan и артефакты Phase 0/Phase 1 для feature
+  `specs/006-machine-discovery-and-selection/spec.md`.
+
+  Спецификация feature является главным источником требований, границ, приоритетов,
+  acceptance scenarios и правил публичного представления данных. Прочитай только
+  релевантные разделы `docs/mvp-requirements.md`.
+
+  Используй
+  `docs/integrations/machine-discovery-compatibility-report.md`
+  как уже подготовленный справочный анализ поведения старой системы. Не повторяй
+  исследование ERP без конкретной необходимости.
+
+  ## Роль erp-reference
+
+  Репозиторий `../erp-reference` нужен исключительно как read-only пример
+  существующей реализации, чтобы понять предметную область и реализовать
+  аналогичное требуемое поведение средствами текущего NestJS-проекта.
+
+  Жёсткие ограничения:
+
+  - никаких текущих или будущих интеграций с ERP не планируется;
+  - NestJS не должен обращаться к ERP API;
+  - NestJS не должен обращаться к базе данных ERP;
+  - не должно быть синхронизации, импорта, polling, webhook или shared database с
+    ERP;
+  - не нужно проектировать ERP adapter, ERP client, ERP ingestion port или
+    compatibility layer;
+  - ERP не является runtime dependency, upstream-системой, master-каталогом или
+    authoritative source для нового приложения;
+  - mobile никогда не взаимодействует с ERP;
+  - нельзя переносить Python-код построчно;
+  - нельзя копировать ERP DTO, внутренние идентификаторы, структуру модулей или
+    административные контракты;
+  - нельзя изменять, форматировать, переименовывать, создавать или удалять файлы
+    внутри `../erp-reference`;
+  - нельзя запускать в `../erp-reference` миграции, production-команды или
+    команды, изменяющие данные;
+  - нельзя извлекать или копировать secrets, API keys, пароли и персональные
+    данные.
+
+  Из ERP разрешено извлекать только полезные для понимания примеры:
+
+  - бизнес-поведение;
+  - состояния и переходы;
+  - правила определения готовности автомата;
+  - обработку ошибок;
+  - известные MQTT topics и payload semantics;
+  - принципы представления location, price и machine state;
+  - существующие ограничения и неоднозначности.
+
+  После изучения этих примеров спроектируй самостоятельную реализацию в NestJS,
+  Prisma/PostgreSQL и React Native. Все необходимые данные и контракты должны
+  принадлежать новому приложению.
+
+  Если рекомендации compatibility report предполагают ERP как master-систему,
+  источник синхронизации или будущую интеграцию, считай эти рекомендации
+  отменёнными настоящим указанием. Используй report только как источник сведений о
+  предметной области и рисках раскрытия внутренних данных.
+
+  ## Текущий проект
+
+  Feature реализуется с нуля внутри существующего pnpm-монорепозитория:
+
+  - NestJS/TypeScript API с Prisma и PostgreSQL находится в `apps/api`;
+  - Expo/React Native/TypeScript приложение находится в `apps/mobile`;
+  - MobX является единственным владельцем application, session, discovery,
+    scanner, card и selected-machine state;
+  - RxJS управляет отменяемыми и конкурентными workflow, supersession запросов,
+    подавлением повторных scan/tap событий, retry и session teardown;
+  - API и native capabilities должны находиться за типизированными
+    Observable-first адаптерами;
+  - React-компоненты должны оставаться presentation-oriented;
+  - stores и services с подписками должны предоставлять `dispose()`.
+
+  Нужно спроектировать самостоятельный consumer-safe machine discovery boundary.
+  Mobile взаимодействует только с аутентифицированным NestJS API и не получает
+  доступ к MQTT, внутренним serial/modem identifiers, topics, credentials или raw
+  telemetry. Controllers должны быть тонкими, входные данные должны явно
+  валидироваться, а публичные ответы формироваться через allowlisted DTO.
+
+  ## Обязательные части плана
+
+  ### 1. Самостоятельная модель каталога
+
+  Спроектируй принадлежащую NestJS/PostgreSQL customer-facing machine read model:
+
+  - стабильный opaque public `machineId`;
+  - publication lifecycle;
+  - безопасное отображаемое название;
+  - адрес и валидированные координаты;
+  - authoritative price per liter и currency;
+  - нормализованный статус `ONLINE`, `SERVICE` или `OFFLINE`;
+  - приватные точные mappings для разрешённых текущих и legacy-кодов;
+  - отсутствие внутренних идентификаторов в публичных ответах.
+
+  Каталог и его данные принадлежат новому приложению. Не проектируй наполнение или
+  синхронизацию каталога из ERP. Для разработки и тестирования используй
+  контролируемые seed/fixture данные и самостоятельный availability emulator.
+
+  ### 2. Persistence
+
+  Спроектируй PostgreSQL/Prisma schema и forward migrations. Явно опиши:
+
+  - entities, ownership и relationships;
+  - уникальность и неизменяемость public identity;
+  - хранение денежных значений без floating-point ошибок;
+  - порядок и валидацию координат;
+  - данные freshness, необходимые для customer availability;
+  - publication, service и offline transitions;
+  - нормализацию identifier mappings и защиту от коллизий;
+  - индексы для bounded catalog retrieval и exact lookup.
+
+  Все schema changes и migrations должны быть явно перечислены в плане.
+
+  ### 3. Availability projection
+
+  Нормализованный статус вычисляется backend-ом:
+
+  - `ONLINE` только при актуальных authoritative evidence и выполнении всех
+    условий доступности;
+  - `SERVICE` при явно включённом service/maintenance state;
+  - `OFFLINE` при explicit offline state, отсутствующей, неизвестной или
+    просроченной telemetry;
+  - отсутствие валидных price или currency всегда запрещает selection;
+  - status, publication и price обновляются при открытии карточки и повторно
+    проверяются при подтверждении выбора.
+
+  Mobile не должен получать raw telemetry или самостоятельно вычислять
+  availability.
+
+  До подтверждения production machine protocol используй самостоятельный
+  replaceable MachineGateway/availability adapter с контролируемым эмулятором.
+  Этот adapter не должен быть связан с ERP.
+
+  ### 4. API contracts
+
+  Спроектируй authenticated API contracts для:
+
+  - bounded incremental catalog discovery;
+  - обновления machine detail/card;
+  - exact QR/manual-code resolution;
+  - финальной проверки selection eligibility;
+  - typed handoff в будущий purchase flow.
+
+  Определи:
+
+  - deterministic pagination и sorting;
+  - cursor semantics;
+  - validation errors;
+  - safe not-found;
+  - connectivity/service errors;
+  - authentication/session errors;
+  - защиту от устаревших результатов.
+
+  Hidden, archived, deleted, non-customer, unknown и inaccessible identifiers не
+  должны различаться через внутренние детали.
+
+  ### 5. Географический поиск
+
+  Исследуй и выбери решение для:
+
+  - валидированных latitude/longitude;
+  - straight-line distance;
+  - сортировки по distance с public `machineId` как tie-breaker;
+  - bounded pagination без duplicates, omissions и нестабильного порядка;
+  - map viewport и configured service area;
+  - автоматов с отсутствующими или невалидными coordinates;
+  - denied, restricted, revoked и temporarily unavailable location permission;
+  - privacy и отсутствия ненужного хранения координат пользователя.
+
+  Сравни простой PostgreSQL/Haversine-подход с geospatial extension. Не добавляй
+  PostGIS или новую инфраструктуру без доказанной необходимости для ожидаемого
+  масштаба.
+
+  ### 6. Mobile dependencies
+
+  По официальной документации исследуй минимальный набор map, location, camera и
+  QR dependencies, совместимых с закреплёнными в проекте версиями Expo SDK и React
+  Native.
+
+  Обоснуй каждую новую runtime dependency. Не придумывай версии пакетов.
+
+  Учти:
+
+  - iOS и Android permission configuration;
+  - denied/restricted/unavailable states;
+  - Safe Area;
+  - разные размеры экранов;
+  - test seams для native adapters;
+  - graceful fallback к ручному вводу.
+
+  ### 7. MobX и RxJS
+
+  Спроектируй:
+
+  - один MobX owner для discovery context, deduplicated catalog, active view,
+    permission state, scanner state, card state и selected-machine handoff;
+  - RxJS cancellation/supersession для position, viewport, refresh, pagination,
+    detail, QR, manual lookup, selection, logout и account replacement;
+  - подавление повторных QR detections;
+  - подавление повторных confirmation taps;
+  - запрет устаревшим ответам изменять актуальное состояние;
+  - запрет ответам предыдущей сессии восстанавливать старые данные;
+  - сохранение discovery context при переключении map/list;
+  - явный `dispose()` у долгоживущих reactive services.
+
+  Не представляй одно состояние одновременно в React state, MobX и RxJS.
+
+  ### 8. QR и ручной код
+
+  Спроектируй безопасную идентификацию:
+
+  - только явно поддерживаемые versioned formats и trusted application address
+    patterns;
+  - никакого автоматического открытия произвольных URL;
+  - exact authoritative resolution без fuzzy matching;
+  - trim и безопасная case normalization ручного кода;
+  - approved legacy alias может указывать только на один public machine;
+  - ambiguous, unsupported и unmapped aliases завершаются безопасной ошибкой;
+  - QR платёжных провайдеров не считается machine-selection QR;
+  - production legacy compatibility блокируется до получения и проверки реального
+    обезличенного payload от заказчика.
+
+  QR payload сам по себе не доказывает существование или доступность автомата.
+
+  ### 9. Selection handoff
+
+  Определи минимальный typed selection context для будущего purchase flow:
+
+  - public `machineId`;
+  - актуальный authoritative price context;
+  - актуальный normalized availability;
+  - данные/version marker, необходимые для обнаружения obsolete context.
+
+  Selection должна происходить ровно один раз и не должна:
+
+  - создавать purchase или reservation;
+  - списывать wallet value;
+  - создавать dispense session;
+  - отправлять machine command;
+  - запускать MQTT workflow.
+
+  ### 10. Контролируемая тестовая среда
+
+  До подтверждения production machine protocol предусмотрено:
+
+  - локальное владение каталогом в новом PostgreSQL;
+  - seed/fixture каталог;
+  - самостоятельный availability source port;
+  - availability emulator;
+  - deterministic test clock для freshness;
+  - тестовые QR/public codes;
+  - возможность тестировать смену price/status и delayed responses.
+
+  Не предусматривай никакого ERP import, ERP synchronization или ERP adapter даже
+  как временное решение.
+
+  ## UI
+
+  Используй как визуальные ориентиры:
+
+  - `docs/design/mockups/03_machine_selection_hd.png`;
+  - `docs/design/mockups/04_machine_purchase_hd.png`;
+  - `docs/design/mockups/10_qr_scanner_hd.png`.
+
+  Сохрани визуальную иерархию map/list discovery, machine card и scanner, но не
+  копируй:
+
+  - Ghana addresses;
+  - номера `+233`;
+  - USD и иллюстративные цены;
+  - sample machine names;
+  - фиксированные значения;
+  - неутверждённые изображения автоматов;
+  - другие демонстрационные данные.
+
+  Search, advanced filters, favorites, volume selection, total calculation и
+  purchase controls не входят в feature 006, даже если присутствуют в mockups.
+
+  ## Вне scope
+
+  Явно оставь вне плана:
+
+  - volume selection и total calculation;
+  - purchase, reservation, payment, wallet и dispensing sessions;
+  - MQTT machine-control commands;
+  - firmware work;
+  - payment-provider merchant QR;
+  - favorites, ratings, routes, booking и advanced filters;
+  - catalog administration UI;
+  - любую текущую или будущую интеграцию с ERP;
+  - прямой или косвенный runtime dependency от `../erp-reference`;
+  - перенос ERP Python-кода или DTO;
+  - production machine connectivity до подтверждения customer protocol.
+
+  ## Phase 0
+
+  В `research.md` зафиксируй для каждого решения:
+
+  - Decision;
+  - Rationale;
+  - Alternatives considered;
+  - Production rollout gates, если применимо.
+
+  Обязательно исследуй:
+
+  - самостоятельное владение consumer machine catalog;
+  - public identifier и versioned QR contract;
+  - normalizing current/legacy identifiers;
+  - availability projection и configurable freshness;
+  - money representation;
+  - coordinate validation, distance и pagination;
+  - map/location/camera packages;
+  - safe API error taxonomy;
+  - MobX/RxJS cancellation и session cleanup;
+  - test catalog и availability emulator.
+
+  Не оставляй устранимые `NEEDS CLARIFICATION`. Если production-факт пока не
+  предоставлен, выбери безопасную replaceable реализацию для development/test,
+  зафиксируй недостающий факт как production rollout gate и используй fail-closed
+  поведение.
+
+  Не рассматривай отсутствие ERP-интеграции как clarification: решение уже
+  принято, ERP-интеграции не будет.
+
+  ## Phase 1
+
+  Создай:
+
+  - `data-model.md` с entities, fields, validation, relationships, indexes,
+    lifecycle, availability transitions и ephemeral selection context;
+  - `contracts/` с OpenAPI-контрактами catalog, detail, exact identifier
+    resolution и selection revalidation;
+  - отдельный typed handoff contract, если он не относится к OpenAPI;
+  - `quickstart.md` с runnable backend, mobile, contract, permission, pagination,
+    concurrency, stale-response, security и end-to-end validation scenarios;
+  - `plan.md` с реальными путями репозитория и конкретными NestJS/mobile module
+    boundaries.
+
+  Явно перечисли schema migrations и новые runtime dependencies.
+
+  Не изменяй `tasks.md`, не реализуй production code и не изменяй
+  `../erp-reference`.

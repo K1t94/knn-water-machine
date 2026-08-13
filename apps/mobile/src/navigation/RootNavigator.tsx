@@ -10,6 +10,7 @@ import { WalletScreen } from '../wallet/screens/WalletScreen';
 import { AuthNavigator, authNavigationRef } from './AuthNavigator';
 import { MainNavigator } from './MainNavigator';
 
+import type { MachineDiscoveryNavigationScope } from './MainNavigator';
 import type { AuthApi, OtpVerified } from '../api/auth-api';
 import type { AuthCompositionRoot } from '../auth/auth-composition-root';
 import type { ReferralCompositionRoot } from '../referral/referral-composition-root';
@@ -18,11 +19,15 @@ import type { WalletCompositionRoot } from '../wallet/wallet-composition-root';
 export const RootNavigator = observer(
     ({
         api,
+        machineDiscovery,
+        initialMainRoute,
         referral,
         root,
         wallet,
     }: {
         api: AuthApi;
+        initialMainRoute?: 'MachineDiscovery' | 'Wallet';
+        machineDiscovery?: MachineDiscoveryNavigationScope;
         referral?: ReferralCompositionRoot;
         root: AuthCompositionRoot;
         wallet: WalletCompositionRoot;
@@ -52,7 +57,15 @@ export const RootNavigator = observer(
         }
         if (route === 'main') {
             if (referral) {
-                return <MainNavigator onLogout={() => root.sessionFlow.logout()} referral={referral} wallet={wallet} />;
+                return (
+                    <MainNavigator
+                        {...(initialMainRoute === undefined ? {} : { initialRouteName: initialMainRoute })}
+                        {...(machineDiscovery === undefined ? {} : { machineDiscovery })}
+                        onLogout={() => root.sessionFlow.logout()}
+                        referral={referral}
+                        wallet={wallet}
+                    />
+                );
             }
             return <FallbackWallet wallet={wallet} onLogout={() => root.sessionFlow.logout()} />;
         }

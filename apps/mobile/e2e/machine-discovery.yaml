@@ -1,0 +1,129 @@
+# This flow targets the isolated machine-discovery E2E build. Its bootstrap must
+# authenticate a fixture account, open MachineDiscovery, freeze availability at
+# 2026-08-13T12:00:00Z, and serve one published machine per cursor page.
+appId: com.kaynann.watervending
+name: Machine discovery fixture journey
+tags:
+    - machine-discovery
+    - fixture
+env:
+    FIRST_MACHINE_ID: kdBu6l4X0dCVSatmsocVsQ
+    SECOND_MACHINE_ID: nHqwT5B_eojbUe1cWZHHvw
+---
+# Nearby discovery starts from a deterministic Dakar position.
+- setLocation:
+      latitude: 14.66842
+      longitude: -17.43718
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: allow
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- assertVisible:
+      text: Afficher la carte
+      selected: true
+- assertVisible:
+      id: ^machine-marker-${FIRST_MACHINE_ID}$
+- assertVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+
+# Reaching the second fixture loads exactly one cursor page. Both stable public
+# IDs must remain present once, in deterministic order.
+- tapOn:
+      text: Afficher la liste
+- scrollUntilVisible:
+      element:
+          id: ^machine-card-${SECOND_MACHINE_ID}$
+      direction: DOWN
+      timeout: 15000
+      visibilityPercentage: 50
+- assertVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+      above:
+          id: ^machine-card-${SECOND_MACHINE_ID}$
+- assertNotVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+      index: 1
+- assertNotVisible:
+      id: ^machine-card-${SECOND_MACHINE_ID}$
+      index: 1
+
+# Switching views keeps the loaded catalog/context. Opening a marker must show
+# a freshly fetched detail rather than only the catalog projection.
+- tapOn:
+      text: Afficher la carte
+- assertVisible:
+      id: ^machine-marker-${FIRST_MACHINE_ID}$
+- assertVisible:
+      id: ^machine-marker-${SECOND_MACHINE_ID}$
+- tapOn:
+      id: ^machine-marker-${FIRST_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Plateau Water 01
+- assertVisible: Avenue Nelson Mandela, Dakar-Plateau
+- assertVisible: ONLINE
+- assertVisible: 25 XOF / L
+- tapOn: Retour aux points d’eau
+
+# The same store still owns both pages after returning. A list card opens the
+# corresponding refreshed detail without starting a new discovery journey.
+- tapOn:
+      text: Afficher la liste
+- scrollUntilVisible:
+      element:
+          id: ^machine-card-${SECOND_MACHINE_ID}$
+      direction: DOWN
+      timeout: 15000
+      visibilityPercentage: 50
+- tapOn:
+      id: ^machine-card-${SECOND_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Medina Water 02
+- assertVisible: Avenue Blaise Diagne, Medina
+- assertVisible: SERVICE
+- assertVisible: 30.5 XOF / L
+- tapOn: Retour aux points d’eau
+- assertVisible:
+      id: ^machine-card-${SECOND_MACHINE_ID}$
+      selected: true
+
+# A clean denied-location run must fall back to the configured service area and
+# retain deterministic cursor pagination without a user-distance dependency.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+- extendedWaitUntil:
+      visible: Localisation indisponible
+      timeout: 15000
+- assertVisible: DKR-CENTRE
+- tapOn:
+      text: Afficher la liste
+- assertVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+- scrollUntilVisible:
+      element:
+          id: ^machine-card-${SECOND_MACHINE_ID}$
+      direction: DOWN
+      timeout: 15000
+      visibilityPercentage: 50
+- assertVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+      above:
+          id: ^machine-card-${SECOND_MACHINE_ID}$
+- assertNotVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+      index: 1
+- assertNotVisible:
+      id: ^machine-card-${SECOND_MACHINE_ID}$
+      index: 1

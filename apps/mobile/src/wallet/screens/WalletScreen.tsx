@@ -1,5 +1,14 @@
 import { observer } from 'mobx-react-lite';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+    ActivityIndicator,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+    useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { WalletOperation } from '../../api/wallet-api';
@@ -10,11 +19,15 @@ interface WalletScreenProps {
     store: WalletStore;
     commands: WalletCommands;
     onLogout(): void;
+    onOpenMachineDiscovery?(): void;
     onOpenReferral?(): void;
 }
 
 export const WalletScreen = observer(
-    ({ store, commands, onLogout, onOpenReferral }: WalletScreenProps): React.JSX.Element => {
+    ({ store, commands, onLogout, onOpenMachineDiscovery, onOpenReferral }: WalletScreenProps): React.JSX.Element => {
+        const { height, width } = useWindowDimensions();
+        const compactLayout = width <= 360 || height <= 700;
+
         if (store.viewState === 'initial' || store.viewState === 'loading') {
             return (
                 <SafeAreaView style={styles.safeArea}>
@@ -55,7 +68,7 @@ export const WalletScreen = observer(
 
         return (
             <SafeAreaView style={styles.safeArea}>
-                <View style={styles.header}>
+                <View style={[styles.header, compactLayout && styles.compactHeader]}>
                     <View>
                         <Text style={styles.brand}>KAYNANN</Text>
                         <Text style={styles.heading}>Mon eau</Text>
@@ -72,7 +85,7 @@ export const WalletScreen = observer(
 
                 <ScrollView
                     accessibilityLabel="Contenu du portefeuille"
-                    contentContainerStyle={styles.content}
+                    contentContainerStyle={[styles.content, compactLayout && styles.compactContent]}
                     refreshControl={
                         <RefreshControl
                             colors={['#087f73']}
@@ -82,6 +95,7 @@ export const WalletScreen = observer(
                         />
                     }
                     showsVerticalScrollIndicator={false}
+                    style={styles.scroll}
                 >
                     <View style={styles.balanceCard}>
                         <Text style={styles.balanceLabel}>SOLDE DISPONIBLE</Text>
@@ -103,6 +117,25 @@ export const WalletScreen = observer(
                             )}
                         </Pressable>
                     </View>
+
+                    {onOpenMachineDiscovery ? (
+                        <Pressable
+                            accessible
+                            accessibilityLabel="Choisir un automate"
+                            accessibilityRole="button"
+                            onPress={onOpenMachineDiscovery}
+                            style={styles.machineCard}
+                        >
+                            <View style={styles.machineMark}>
+                                <Text style={styles.machineMarkText}>MAP</Text>
+                            </View>
+                            <View style={styles.machineCopy}>
+                                <Text style={styles.machineEyebrow}>AUTOMATES</Text>
+                                <Text style={styles.machineTitle}>Trouver un point d’eau</Text>
+                            </View>
+                            <Text style={styles.machineArrow}>›</Text>
+                        </Pressable>
+                    ) : null}
 
                     {onOpenReferral ? (
                         <Pressable
@@ -237,17 +270,23 @@ const styles = StyleSheet.create({
     },
     primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '800' },
     header: {
+        alignSelf: 'center',
         alignItems: 'center',
         flexDirection: 'row',
         justifyContent: 'space-between',
+        maxWidth: 680,
         paddingHorizontal: 22,
         paddingTop: 12,
+        width: '100%',
     },
+    compactHeader: { paddingHorizontal: 16, paddingTop: 8 },
     brand: { color: '#087f73', fontSize: 11, fontWeight: '900', letterSpacing: 2.4 },
     heading: { color: '#12332f', fontSize: 30, fontWeight: '900', marginTop: 2 },
     logoutButton: { backgroundColor: '#dcefea', borderRadius: 14, paddingHorizontal: 17, paddingVertical: 11 },
     logoutText: { color: '#075b53', fontSize: 14, fontWeight: '800' },
+    scroll: { alignSelf: 'center', flex: 1, maxWidth: 680, width: '100%' },
     content: { padding: 22, paddingBottom: 44 },
+    compactContent: { padding: 16, paddingBottom: 32 },
     balanceCard: {
         backgroundColor: '#0d6f66',
         borderRadius: 28,
@@ -270,6 +309,27 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
     },
     refreshText: { color: '#075b53', fontSize: 14, fontWeight: '900' },
+    machineCard: {
+        alignItems: 'center',
+        backgroundColor: '#dcefeb',
+        borderRadius: 20,
+        flexDirection: 'row',
+        marginTop: 14,
+        padding: 16,
+    },
+    machineMark: {
+        alignItems: 'center',
+        backgroundColor: '#087f73',
+        borderRadius: 16,
+        height: 52,
+        justifyContent: 'center',
+        width: 52,
+    },
+    machineMarkText: { color: '#fff', fontSize: 11, fontWeight: '900', letterSpacing: 0.7 },
+    machineCopy: { flex: 1, marginHorizontal: 14 },
+    machineEyebrow: { color: '#087f73', fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
+    machineTitle: { color: '#12332f', fontSize: 17, fontWeight: '900', marginTop: 5 },
+    machineArrow: { color: '#087f73', fontSize: 32, fontWeight: '500' },
     referralCard: {
         alignItems: 'center',
         backgroundColor: '#fff4df',

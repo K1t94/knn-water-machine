@@ -1,7 +1,11 @@
-import type { Clock } from '../../auth/application/ports';
+import type { ClockPort } from '../../machines/application/ports/clock.port';
 
-export class FixedClock implements Clock {
-    constructor(private current: Date) {}
+export class FixedClock implements ClockPort {
+    private current: Date;
+
+    constructor(value: Date) {
+        this.current = new Date(value);
+    }
 
     now(): Date {
         return new Date(this.current);

@@ -1,0 +1,165 @@
+# This flow targets the isolated machine-discovery E2E build from T124. Every
+# launch resets deterministic PostgreSQL fixtures, authenticates the fixture
+# account, opens MachineDiscovery, and accepts only the named E2E scenario.
+# Diagnostic IDs below must exist only in test/E2E builds.
+appId: com.kaynann.watervending
+name: Machine safe current results fixture journey
+tags:
+    - machine-safe-current-results
+    - fixture
+env:
+    FIRST_MACHINE_ID: kdBu6l4X0dCVSatmsocVsQ
+    SECOND_MACHINE_ID: nHqwT5B_eojbUe1cWZHHvw
+    PRIVATE_DATABASE_ID: internal-machine-row-7f3a
+    PRIVATE_DEVICE_SERIAL: device-serial-private-481
+    PRIVATE_MODEM_IDENTITY: modem-imei-private-61481
+    PRIVATE_MESSAGE_TOPIC: machines/dakar/private/heartbeat
+    PRIVATE_CREDENTIAL: fixture-credential-do-not-render
+    PRIVATE_RAW_TELEMETRY: raw-ready-to-dispense=true
+---
+# A response from discovery generation 1 arrives after generation 2. It must
+# not replace the current catalog or its ordering revision.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SAFE_CURRENT_SCENARIO: delayed-obsolete-catalog
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- assertVisible:
+      id: ^machine-card-${SECOND_MACHINE_ID}$
+- assertNotVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+- assertVisible:
+      id: e2e-obsolete-catalog-commit-count-0
+- assertVisible:
+      id: e2e-catalog-ordering-revision-2
+
+# Loading the next page changes the server ordering revision and makes the
+# cursor stale. Current data stays visible; retry starts a fresh discovery and
+# returns the complete revision-2 catalog instead of appending an old page.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SAFE_CURRENT_SCENARIO: stale-cursor-retry
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Afficher la liste
+- assertVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+- scroll
+- extendedWaitUntil:
+      visible: Résultats à actualiser
+      timeout: 15000
+- assertVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+- tapOn: Réessayer
+- scrollUntilVisible:
+      element:
+          id: ^machine-card-${SECOND_MACHINE_ID}$
+      direction: DOWN
+      timeout: 15000
+      visibilityPercentage: 50
+- assertVisible:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+      above:
+          id: ^machine-card-${SECOND_MACHINE_ID}$
+- assertNotVisible: Résultats à actualiser
+- assertVisible:
+      id: e2e-catalog-ordering-revision-2
+
+# Evidence exactly on the inclusive freshness boundary remains ONLINE and
+# selectable when the acceptance clock is frozen by the fixture bootstrap.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SAFE_CURRENT_SCENARIO: freshness-exact-boundary
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: ONLINE
+- assertVisible:
+      text: Continuer avec ce point d’eau
+      enabled: true
+
+# One millisecond beyond the boundary is stale evidence: the public projection
+# must be OFFLINE and continuation must remain disabled.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SAFE_CURRENT_SCENARIO: freshness-beyond-boundary
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: OFFLINE
+- assertVisible: Hors ligne
+- assertNotVisible: ONLINE
+- assertVisible:
+      text: Continuer avec ce point d’eau
+      enabled: false
+
+# The fixture stores deterministic sentinel values in every forbidden private
+# field. Only allowlisted public values may reach the catalog or detail UI.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SAFE_CURRENT_SCENARIO: public-field-redaction
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- assertVisible: Plateau Water 01
+- assertVisible: Avenue Nelson Mandela, Dakar-Plateau
+- assertVisible: 25 XOF / L
+- assertNotVisible: ${PRIVATE_DATABASE_ID}
+- assertNotVisible: ${PRIVATE_DEVICE_SERIAL}
+- assertNotVisible: ${PRIVATE_MODEM_IDENTITY}
+- assertNotVisible: ${PRIVATE_MESSAGE_TOPIC}
+- assertNotVisible: ${PRIVATE_CREDENTIAL}
+- assertNotVisible: ${PRIVATE_RAW_TELEMETRY}
+- tapOn:
+      id: ^machine-card-${FIRST_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Plateau Water 01
+- assertVisible: Avenue Nelson Mandela, Dakar-Plateau
+- assertVisible: ONLINE
+- assertVisible: 25 XOF / L
+- assertNotVisible: ${PRIVATE_DATABASE_ID}
+- assertNotVisible: ${PRIVATE_DEVICE_SERIAL}
+- assertNotVisible: ${PRIVATE_MODEM_IDENTITY}
+- assertNotVisible: ${PRIVATE_MESSAGE_TOPIC}
+- assertNotVisible: ${PRIVATE_CREDENTIAL}
+- assertNotVisible: ${PRIVATE_RAW_TELEMETRY}

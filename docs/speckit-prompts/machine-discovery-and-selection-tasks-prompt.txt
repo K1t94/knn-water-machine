@@ -1,0 +1,310 @@
+Сформируй подробный, dependency-ordered и непосредственно исполнимый `tasks.md`
+  для feature `specs/006-machine-discovery-and-selection`.
+
+  Используй как источники:
+
+  - `specs/006-machine-discovery-and-selection/spec.md`;
+  - `specs/006-machine-discovery-and-selection/plan.md`;
+  - `specs/006-machine-discovery-and-selection/research.md`;
+  - `specs/006-machine-discovery-and-selection/data-model.md`;
+  - `specs/006-machine-discovery-and-selection/contracts/machine-discovery.openapi.yaml`;
+  - `specs/006-machine-discovery-and-selection/contracts/selection-handoff.md`;
+  - `specs/006-machine-discovery-and-selection/quickstart.md`;
+  - `.specify/memory/constitution.md`;
+  - текущую структуру `apps/api` и `apps/mobile`.
+
+  Спецификация является главным источником требований, acceptance scenarios,
+  приоритетов и scope. Не пересматривай решения, уже принятые в `research.md` и
+  `plan.md`, если они не противоречат спецификации или constitution.
+
+  ## Организация задач
+
+  Сгруппируй задачи по фазам:
+
+  1. Setup.
+  2. Foundational.
+  3. User Story 1 — Find Nearby Machines, P1.
+  4. User Story 2 — Identify a Machine by Code, P1.
+  5. User Story 3 — Inspect and Select an Available Machine, P1.
+  6. User Story 4 — Receive Safe and Current Results, P2.
+  7. User Story 5 — Keep Machine Data Session-Safe, P2.
+  8. Polish and cross-cutting validation.
+
+  Каждая user story должна быть независимо проверяемым increment с явно указанным
+  Independent Test.
+
+  Не создавай большие задачи вида «реализовать backend» или «реализовать mobile».
+  Разделяй работу на небольшие логические diff с точными файлами, зависимостями и
+  минимальной проверкой результата.
+
+  Все задачи должны строго соответствовать формату:
+
+  `- [ ] T001 [P?] [US?] Конкретное действие в точном/пути/к/файлу`
+
+  Для Setup, Foundational и Polish не используй `[US?]`. Маркер `[P]` ставь только
+  там, где задача действительно может выполняться параллельно без зависимости от
+  незавершённых задач и без конфликтующего изменения одних файлов.
+
+  ## Обязательные implementation areas
+
+  Включи задачи для следующих частей.
+
+  ### Backend foundation
+
+  - Добавление typed machine-discovery configuration в существующий
+    `apps/api/src/config/env.ts` и соответствующих тестов.
+  - Forward-only Prisma migration `add_machine_discovery_catalog`.
+  - Prisma entities, enums, constraints, relationships и индексы из
+    `data-model.md`.
+  - Database-level защита неизменяемости opaque public `machineId`.
+  - Exact decimal representation цены через PostgreSQL `NUMERIC`/Prisma Decimal.
+  - Валидация пар latitude/longitude и явного `serviceAreaCode`.
+  - Приватные current/legacy identifier mappings и защита от коллизий.
+  - `MachineCatalogState` и ordering revision для стабильной пагинации.
+  - Environment-gated seed/fixture каталог, который отказывается работать в
+    production.
+  - Детерминированные fixture identifiers, QR payloads, цены, координаты и machine
+    states.
+  - Инъецируемый clock для freshness-тестов.
+
+  Все schema changes должны выполняться через Prisma migration. Не использовать
+  automatic schema synchronization.
+
+  ### Backend domain and infrastructure
+
+  - Availability projector с единственными публичными статусами `ONLINE`,
+    `SERVICE`, `OFFLINE`.
+  - Fail-closed поведение при missing, unknown, stale, malformed или conflicting
+    evidence.
+  - Запрет selection при отсутствующей или невалидной price/currency.
+  - Read-only `MachineGateway`/availability port без command capability.
+  - Самостоятельный availability emulator с изменяемыми evidence и delayed
+    responses.
+  - Отдельный test fixture harness для смены price, publication и service state.
+  - Parameterized PostgreSQL Haversine query.
+  - Сортировка по distance и public `machineId` как tie-breaker.
+  - Signed opaque cursor, связанный с query context и catalog ordering revision.
+  - Exact identifier normalization и versioned QR parser.
+  - Public response mapper с allowlist и безопасным fallback display name.
+  - Единая consumer-safe error taxonomy.
+
+  ### Authenticated API
+
+  Реализовать и протестировать контракты:
+
+  - `GET /v1/machines`;
+  - `GET /v1/machines/{machineId}`;
+  - `POST /v1/machines/resolve`;
+  - `POST /v1/machines/{machineId}/selection-revalidation`.
+
+  Контроллеры должны оставаться тонкими. Входные DTO должны проходить явную
+  валидацию. Все ответы должны формироваться через allowlisted response DTO/mapper.
+
+  Hidden, archived, deleted, non-customer, inaccessible, disabled alias, unknown и
+  unmapped identifiers должны возвращать одинаковое безопасное
+  `MACHINE_NOT_FOUND`.
+
+  Selection revalidation должна:
+
+  - повторно получать актуальные price, publication и availability;
+  - сравнивать `expectedMachineRevision`;
+  - при изменении возвращать `MACHINE_CONTEXT_CHANGED` с новой безопасной карточкой;
+  - при недоступности возвращать `MACHINE_NOT_SELECTABLE`;
+  - создавать typed handoff только для актуального `ONLINE` автомата;
+  - не создавать никаких persistent side effects.
+
+  Добавь contract/OpenAPI validation и проверки отсутствия внутренних полей в
+  публичных ответах.
+
+  ### Mobile dependencies and native configuration
+
+  Создай задачи для установки через Expo SDK-aware installer:
+
+  - `expo-location`;
+  - `expo-camera`;
+  - `react-native-maps`.
+
+  Не указывай придуманные версии и не редактируй версии вручную. Используй
+  `expo install` и зафиксированный lockfile.
+
+  Добавь задачи для:
+
+  - Expo config plugins и permission descriptions;
+  - только foreground location;
+  - camera без microphone/recording permission;
+  - Android Maps key через deployment secret;
+  - нормализованных permission states: `undetermined`, `granted`, `denied`,
+    `restricted`, `revoked`, `unavailable`;
+  - test seams для location, camera/scanner и map adapters;
+  - list/manual fallback при недоступности native capabilities;
+  - остановки camera preview при потере focus;
+  - Safe Area, keyboard и разных размеров экранов.
+
+  ### MobX и RxJS
+
+  Один `MachineDiscoveryStore` должен владеть:
+
+  - discovery context;
+  - deduplicated catalog;
+  - active map/list view;
+  - location permission state;
+  - scanner state;
+  - current card/detail state;
+  - selected-machine handoff;
+  - loading/error/request generation state.
+
+  Добавь задачи для `MachineDiscoveryFlowService`, который реализует:
+
+  - `switchMap` для superseding position, viewport, refresh, detail, QR и manual
+    lookup;
+  - отмену pagination при новом discovery generation;
+  - `exhaustMap` для page append и selection confirmation;
+  - подавление повторных QR detection;
+  - подавление повторных confirmation taps;
+  - session epoch и request generation checks;
+  - `takeUntil` для logout, account replacement и disposal;
+  - запрет late responses изменять актуальный store;
+  - очистку discovery/card/scanner/handoff state при смене сессии;
+  - идемпотентный `dispose()`.
+
+  Не создавай задачи, представляющие одно состояние одновременно через React state,
+  MobX и RxJS. React Native screens должны оставаться presentation-oriented.
+
+  ### UI
+
+  Перед задачами реализации соответствующих экранов добавь задачи визуального
+  изучения:
+
+  - `docs/design/mockups/03_machine_selection_hd.png`;
+  - `docs/design/mockups/04_machine_purchase_hd.png`;
+  - `docs/design/mockups/10_qr_scanner_hd.png`.
+
+  Добавь реализацию только следующих UI частей:
+
+  - map/list discovery;
+  - machine markers и list cards;
+  - machine detail/card;
+  - QR scanner;
+  - manual code fallback;
+  - loading, empty, denied, offline, service, stale и error states;
+  - final selection confirmation и typed navigation handoff.
+
+  После UI реализации добавь отдельную visual comparison задачу.
+
+  Не переносить из mockups Ghana addresses, `+233`, USD, sample machine names,
+  фиксированные цены/значения, неутверждённые изображения автоматов и другие
+  демонстрационные данные.
+
+  ## Тестовые задачи обязательны
+
+  Для этой feature тесты не являются optional. Добавь конкретные test-first задачи
+  с точными путями для:
+
+  - availability projection и freshness boundaries;
+  - money/coordinate/identifier validation;
+  - identifier collision protection;
+  - versioned QR grammar и запрета произвольных URL;
+  - signed cursor validation;
+  - Haversine ordering и `machineId` tie-breaker;
+  - pagination без duplicates/omissions;
+  - stale catalog revision;
+  - authenticated API contracts;
+  - uniform safe not-found;
+  - public DTO allowlist и отсутствие sensitive fields;
+  - detail refresh;
+  - price/status change между card и confirmation;
+  - отсутствие selection side effects;
+  - location/camera permission states;
+  - map/list context preservation;
+  - catalog deduplication;
+  - request cancellation и supersession;
+  - delayed stale responses;
+  - repeated QR detections;
+  - repeated confirmation taps;
+  - logout/account replacement;
+  - session epoch isolation;
+  - идемпотентный `dispose()`;
+  - end-to-end fixture/emulator scenarios из `quickstart.md`.
+
+  Размещай test tasks перед соответствующей реализацией внутри каждой user story,
+  когда возможен test-first подход.
+
+  ## Роль erp-reference
+
+  `../erp-reference` разрешён исключительно как read-only пример старой реализации
+  для понимания предметной области. Compatibility report уже подготовлен, поэтому
+  повторное исследование ERP не требуется.
+
+  Жёстко запрещено создавать задачи для:
+
+  - текущей или будущей интеграции с ERP;
+  - ERP API или ERP database access;
+  - ERP adapter, client, ingestion port или compatibility layer;
+  - synchronization, import, polling, webhook или shared database;
+  - использования ERP как runtime dependency, upstream, master-каталога или
+    authoritative source;
+  - получения catalog seed/fixtures из ERP;
+  - переноса Python-кода, ERP DTO, внутренних identifiers или структуры модулей;
+  - любых изменений внутри `../erp-reference`.
+
+  Если в compatibility report встречаются рекомендации об ERP master-system,
+  ingestion или синхронизации, игнорируй их как отменённые.
+
+  ## Production rollout gates
+
+  Не создавай задачи, предполагающие уже известный production machine protocol.
+
+  До его подтверждения задачи должны реализовывать только самостоятельный emulator
+  и fail-closed boundary.
+
+  Production legacy QR compatibility должна оставаться выключенной до получения и
+  проверки реального обезличенного payload заказчика. Не превращай получение этого
+  payload в implementation dependency для development/test increment.
+
+  Production configuration должна запрещать emulator mode.
+
+  ## Вне scope
+
+  Не добавляй задачи для:
+
+  - search и advanced filters;
+  - favorites, ratings, routes и booking;
+  - volume selection и total calculation;
+  - purchase, reservation и payment;
+  - wallet operations;
+  - dispensing sessions;
+  - MQTT commands;
+  - firmware;
+  - payment-provider merchant QR;
+  - catalog administration UI;
+  - PostGIS или новой geospatial infrastructure;
+  - production machine connectivity;
+  - любой ERP-интеграции.
+
+  ## Итоговая структура tasks.md
+
+  После списка задач обязательно добавь:
+
+  - Phase Dependencies;
+  - User Story Dependencies;
+  - Within-Story Dependencies;
+  - Parallel Opportunities;
+  - конкретный parallel execution example для каждой user story;
+  - Implementation Strategy;
+  - MVP scope.
+
+  MVP должен включать Setup, Foundational и все три P1 stories, потому что discovery,
+  exact identification и safe selection вместе образуют минимальный завершённый
+  machine-selection flow.
+
+  Перед завершением проверь:
+
+  - последовательность Task IDs;
+  - наличие точного пути в каждой задаче;
+  - корректность `[P]`;
+  - наличие `[US1]`–`[US5]` только в story phases;
+  - независимый test criteria для каждой story;
+  - покрытие всех OpenAPI routes и entities;
+  - отсутствие ERP integration tasks;
+  - отсутствие out-of-scope functionality;
+  - возможность выполнять `tasks.md` без дополнительных архитектурных решений.

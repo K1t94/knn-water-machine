@@ -6,6 +6,7 @@ const deploymentEnvironments = ['development', 'test', 'staging', 'production'] 
 const restrictedEnvironments = new Set<string>(['staging', 'production']);
 const base64UrlPattern = /^[A-Za-z0-9_-]+$/;
 const positiveDecimalPattern = /^[1-9]\d*$/;
+const localMachineCursorHmacKey = Buffer.alloc(32).toString('base64url');
 const referralBonusDefaults = {
     REFERRAL_INVITER_BONUS_ML: 5_000n,
 } as const;
@@ -89,6 +90,18 @@ const envSchema = z
         REFERRAL_INVITER_BONUS_ML: optionalTrimmedString,
         REFERRAL_OPERATIONS_TOKEN: optionalBase64UrlSecret(32),
 
+        MACHINE_CURSOR_HMAC_KEY: base64UrlSecret(32).default(localMachineCursorHmacKey),
+        MACHINE_CURSOR_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+        MACHINE_AVAILABILITY_FRESHNESS_SECONDS: z.coerce.number().int().positive().default(60),
+        MACHINE_AVAILABILITY_ALLOWED_CLOCK_SKEW_SECONDS: z.coerce.number().int().nonnegative().default(5),
+        MACHINE_SERVICE_AREA_NORTH: z.coerce.number().min(-90).max(90).default(56.1),
+        MACHINE_SERVICE_AREA_EAST: z.coerce.number().min(-180).max(180).default(38.2),
+        MACHINE_SERVICE_AREA_SOUTH: z.coerce.number().min(-90).max(90).default(55.4),
+        MACHINE_SERVICE_AREA_WEST: z.coerce.number().min(-180).max(180).default(36.7),
+        MACHINE_GATEWAY_MODE: z.enum(['disabled', 'emulator']).default('disabled'),
+        MACHINE_FIXTURE_MODE: booleanFromEnv.default(false),
+        MACHINE_LEGACY_QR_ENABLED: booleanFromEnv.default(false),
+
         OTP_SENDS_PER_PHONE_HOUR: z.coerce.number().int().positive().default(3),
         OTP_SENDS_PER_PHONE_DAY: z.coerce.number().int().positive().default(6),
         OTP_SENDS_PER_IP_HOUR: z.coerce.number().int().positive().default(20),
@@ -152,6 +165,40 @@ const envSchema = z
                 path: ['REFERRAL_OPERATIONS_TOKEN'],
                 message: 'is required in staging and production',
             });
+        }
+
+        if (env.MACHINE_SERVICE_AREA_NORTH <= env.MACHINE_SERVICE_AREA_SOUTH) {
+            context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['MACHINE_SERVICE_AREA_NORTH'],
+                message: 'must be greater than MACHINE_SERVICE_AREA_SOUTH',
+            });
+        }
+
+        if (env.MACHINE_SERVICE_AREA_EAST <= env.MACHINE_SERVICE_AREA_WEST) {
+            context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['MACHINE_SERVICE_AREA_WEST'],
+                message: 'must be less than MACHINE_SERVICE_AREA_EAST',
+            });
+        }
+
+        const restrictedMachineModes = [
+            ['MACHINE_GATEWAY_MODE', env.MACHINE_GATEWAY_MODE === 'emulator'],
+            ['MACHINE_FIXTURE_MODE', env.MACHINE_FIXTURE_MODE],
+            ['MACHINE_LEGACY_QR_ENABLED', env.MACHINE_LEGACY_QR_ENABLED],
+        ] as const;
+
+        if (restrictedEnvironments.has(env.APP_ENV)) {
+            for (const [field, enabled] of restrictedMachineModes) {
+                if (enabled) {
+                    context.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: [field],
+                        message: 'is forbidden in staging and production',
+                    });
+                }
+            }
         }
 
         if (restrictedEnvironments.has(env.APP_ENV) && env.SMS_PROVIDER === 'fake') {

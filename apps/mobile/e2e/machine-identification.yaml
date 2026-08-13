@@ -1,0 +1,242 @@
+# This flow targets the isolated machine-discovery E2E build from T124. Each
+# launch resets PostgreSQL fixtures, authenticates the fixture account, opens
+# MachineDiscovery, and accepts only the named E2E scenario. Scenario arguments
+# and injected scanner events must not be registered in production builds.
+appId: com.kaynann.watervending
+name: Machine identification fixture journey
+tags:
+    - machine-identification
+    - fixture
+env:
+    MANUAL_CODE: DKR-PLATEAU-01
+---
+# A versioned application QR emitted by the injected scanner opens the refreshed
+# public card without first selecting a discovery result.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: valid-versioned-qr
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Plateau Water 01
+- assertVisible: Avenue Nelson Mandela, Dakar-Plateau
+- assertVisible: ONLINE
+- assertVisible: 25 XOF / L
+
+# The manual path trims and normalizes the current public code, then opens the
+# same refreshed card.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: manual
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- tapOn:
+      text: Saisir le code manuellement
+- tapOn:
+      id: manual-machine-code-input
+- inputText: dkr-plateau-01
+- tapOn:
+      id: manual-machine-code-submit
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Plateau Water 01
+- assertVisible: Avenue Nelson Mandela, Dakar-Plateau
+
+# An arbitrary URL emitted as QR data remains on the scanner and is rejected as
+# invalid input. It must not be treated as a machine alias.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: arbitrary-url
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- extendedWaitUntil:
+      visible: Code de machine invalide
+      timeout: 15000
+- assertVisible: Scanner un QR
+- assertNotVisible: FICHE ACTUALISÉE
+
+# The scanner seam emits the same valid QR twice while the first lookup is in
+# flight. Only one detail route may be opened.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: duplicate-valid-qr
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible:
+      text: FICHE ACTUALISÉE
+      index: 0
+- assertNotVisible:
+      text: FICHE ACTUALISÉE
+      index: 1
+- assertVisible: Plateau Water 01
+
+# Explicit cancel stops identification and returns to the unchanged discovery
+# screen without opening a machine.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: idle
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- assertVisible: Scanner un QR
+- tapOn:
+      text: Annuler le scan
+- assertVisible: Trouver un point
+- assertNotVisible: FICHE ACTUALISÉE
+
+# Denied camera access retains the manual path and resolves the current code.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: deny
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: manual
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- assertVisible: Accès à la caméra refusé
+- tapOn:
+      text: Saisir le code manuellement
+- tapOn:
+      id: manual-machine-code-input
+- inputText: ${MANUAL_CODE}
+- tapOn:
+      id: manual-machine-code-submit
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Plateau Water 01
+
+# The first manual lookup fails at the injected transport boundary. The retry
+# remains distinguishable from not-found and reuses the same controlled input.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: connectivity-once
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- tapOn:
+      text: Saisir le code manuellement
+- tapOn:
+      id: manual-machine-code-input
+- inputText: ${MANUAL_CODE}
+- tapOn:
+      id: manual-machine-code-submit
+- extendedWaitUntil:
+      visible: Connexion indisponible
+      timeout: 15000
+- assertNotVisible: Machine introuvable
+- tapOn:
+      text: Réessayer
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Plateau Water 01
+
+# Unknown and inaccessible fixture identifiers intentionally produce the same
+# public result. The second value belongs to a hidden/disabled fixture but must
+# not disclose that distinction.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: manual
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- tapOn:
+      text: Saisir le code manuellement
+- tapOn:
+      id: manual-machine-code-input
+- inputText: DKR-UNKNOWN-99
+- tapOn:
+      id: manual-machine-code-submit
+- extendedWaitUntil:
+      visible: Machine introuvable
+      timeout: 15000
+- assertNotVisible: FICHE ACTUALISÉE
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_IDENTIFICATION_SCENARIO: manual
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      text: Saisir un code manuellement
+- tapOn:
+      text: Saisir le code manuellement
+- tapOn:
+      id: manual-machine-code-input
+- inputText: DKR-YOFF-03
+- tapOn:
+      id: manual-machine-code-submit
+- extendedWaitUntil:
+      visible: Machine introuvable
+      timeout: 15000
+- assertNotVisible: FICHE ACTUALISÉE

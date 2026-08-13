@@ -1,0 +1,132 @@
+# This flow targets the isolated machine-discovery E2E build from T124. Every
+# launch authenticates a deterministic fixture account, opens MachineDiscovery,
+# populates all machine state, and holds catalog, card, scanner, error, and
+# selection-handoff results until after the named session transition. Diagnostic
+# IDs below must exist only in test/E2E builds and remain visible on the auth root.
+appId: com.kaynann.watervending
+name: Machine session isolation delayed-response journey
+tags:
+    - machine-session-isolation
+    - fixture
+env:
+    OLD_MACHINE_ID: kdBu6l4X0dCVSatmsocVsQ
+---
+# A protected refresh expires the access session and its renewal fails. The app
+# returns to the existing phone flow before the fixture releases every pending
+# old-session response; none may restore machine state or reach a handoff.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_SESSION_SCENARIO: expiry-failed-renewal-delayed-results
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- assertVisible:
+      id: ^machine-card-${OLD_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: Votre numéro de téléphone
+      timeout: 15000
+- extendedWaitUntil:
+      visible:
+          id: e2e-old-session-responses-released
+      timeout: 15000
+- assertNotVisible:
+      id: ^machine-card-${OLD_MACHINE_ID}$
+- assertNotVisible: FICHE ACTUALISÉE
+- assertNotVisible: Scanner un QR
+- assertNotVisible: Connexion indisponible
+- assertVisible:
+      id: e2e-old-session-catalog-commit-count-0
+- assertVisible:
+      id: e2e-old-session-card-commit-count-0
+- assertVisible:
+      id: e2e-old-session-scanner-commit-count-0
+- assertVisible:
+      id: e2e-old-session-error-commit-count-0
+- assertVisible:
+      id: e2e-old-session-handoff-count-0
+
+# Explicit logout ends the account-bound scope while the same five response
+# classes are pending. Their delayed release must leave the auth flow and all
+# zero-commit diagnostics unchanged.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_SESSION_SCENARIO: logout-delayed-results
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- assertVisible:
+      id: ^machine-card-${OLD_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: Votre numéro de téléphone
+      timeout: 15000
+- extendedWaitUntil:
+      visible:
+          id: e2e-old-session-responses-released
+      timeout: 15000
+- assertNotVisible:
+      id: ^machine-card-${OLD_MACHINE_ID}$
+- assertNotVisible: FICHE ACTUALISÉE
+- assertNotVisible: Scanner un QR
+- assertNotVisible: Connexion indisponible
+- assertVisible:
+      id: e2e-old-session-catalog-commit-count-0
+- assertVisible:
+      id: e2e-old-session-card-commit-count-0
+- assertVisible:
+      id: e2e-old-session-scanner-commit-count-0
+- assertVisible:
+      id: e2e-old-session-error-commit-count-0
+- assertVisible:
+      id: e2e-old-session-handoff-count-0
+
+# Replacing the account invalidates the old identity before a new account may be
+# authenticated. Releasing old-account work on the phone flow must not expose or
+# commit any machine result owned by that identity.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+          camera: allow
+      arguments:
+          E2E_MACHINE_SESSION_SCENARIO: account-replacement-delayed-results
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- assertVisible:
+      id: ^machine-card-${OLD_MACHINE_ID}$
+- extendedWaitUntil:
+      visible: Votre numéro de téléphone
+      timeout: 15000
+- extendedWaitUntil:
+      visible:
+          id: e2e-old-session-responses-released
+      timeout: 15000
+- assertNotVisible:
+      id: ^machine-card-${OLD_MACHINE_ID}$
+- assertNotVisible: FICHE ACTUALISÉE
+- assertNotVisible: Scanner un QR
+- assertNotVisible: Connexion indisponible
+- assertVisible:
+      id: e2e-old-session-catalog-commit-count-0
+- assertVisible:
+      id: e2e-old-session-card-commit-count-0
+- assertVisible:
+      id: e2e-old-session-scanner-commit-count-0
+- assertVisible:
+      id: e2e-old-session-error-commit-count-0
+- assertVisible:
+      id: e2e-old-session-handoff-count-0

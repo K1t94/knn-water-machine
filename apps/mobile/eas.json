@@ -7,6 +7,15 @@
         "preview": {
             "distribution": "internal"
         },
+        "machine-discovery-e2e": {
+            "distribution": "internal",
+            "env": {
+                "APP_ENV": "e2e",
+                "EXPO_PUBLIC_APP_ENV": "e2e",
+                "EXPO_PUBLIC_BUILD_VARIANT": "machine-discovery-e2e",
+                "EXPO_PUBLIC_PRODUCTION_DISTRIBUTABLE": "false"
+            }
+        },
         "production": {}
     }
 }

@@ -13,6 +13,7 @@ const typescriptFiles = ['**/*.{ts,tsx,mts,cts}'];
 const importFiles = ['**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}'];
 const mobileFiles = ['apps/mobile/**/*.{js,jsx,ts,tsx}'];
 const mobileTestFiles = [
+    'apps/mobile/app.config.spec.ts',
     'apps/mobile/__tests__/**/*.{ts,tsx}',
     'apps/mobile/src/**/*.{test,spec}.{ts,tsx}',
     'apps/mobile/.eslint-fixtures/invalid-mobile.spec.tsx',
@@ -26,7 +27,9 @@ const apiTestFiles = [
 ];
 const typedApplicationFiles = [
     'apps/mobile/index.ts',
+    'apps/mobile/index.e2e.ts',
     'apps/mobile/app.config.ts',
+    'apps/mobile/app.config.spec.ts',
     'apps/mobile/src/**/*.{ts,tsx}',
     'apps/mobile/__tests__/**/*.{ts,tsx}',
     'apps/mobile/.eslint-fixtures/**/*.{ts,tsx}',
@@ -34,7 +37,12 @@ const typedApplicationFiles = [
     'apps/api/test/**/*.ts',
     'apps/api/.eslint-fixtures/**/*.ts',
 ];
-const testFiles = ['apps/mobile/__tests__/**/*.{ts,tsx}', 'apps/mobile/src/**/*.{test,spec}.{ts,tsx}', ...apiTestFiles];
+const testFiles = [
+    'apps/mobile/app.config.spec.ts',
+    'apps/mobile/__tests__/**/*.{ts,tsx}',
+    'apps/mobile/src/**/*.{test,spec}.{ts,tsx}',
+    ...apiTestFiles,
+];
 const mockAndFixtureFiles = ['**/{mocks,fixtures}/**/*.{js,jsx,ts,tsx}', '**/*.{mock,fixture}.{js,jsx,ts,tsx}'];
 const migrationAndSeedFiles = ['**/{migrations,seeds}/**/*.{js,ts}', '**/*.{migration,seed}.{js,ts}'];
 const toolingFiles = [

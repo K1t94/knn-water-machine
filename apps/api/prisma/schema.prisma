@@ -87,6 +87,29 @@ enum ReferralBonusDeliveryStatus {
   PERMANENT_FAILURE
 }
 
+enum MachinePublicationState {
+  PUBLISHED
+  HIDDEN
+  ARCHIVED
+}
+
+enum MachineServiceMode {
+  NORMAL
+  SERVICE
+}
+
+enum MachineEvidenceState {
+  READY
+  OFFLINE
+  UNKNOWN
+}
+
+enum MachineIdentifierKind {
+  CURRENT_MANUAL
+  LEGACY_MANUAL
+  LEGACY_QR
+}
+
 model User {
   id                        String                     @id @default(uuid()) @db.Uuid
   phoneE164                 String                     @unique @db.VarChar(16)
@@ -284,4 +307,80 @@ model ReferralBonusEntitlement {
 
   @@index([status, nextAttemptAt])
   @@index([beneficiaryUserId, createdAt(sort: Desc)])
+}
+
+model Machine {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  machineId            String                       @unique @db.VarChar(22)
+  displayName          String?                      @db.VarChar(120)
+  publicationState     MachinePublicationState      @default(HIDDEN)
+  serviceMode          MachineServiceMode           @default(SERVICE)
+  selectionRevision    BigInt                       @default(1)
+  deletedAt            DateTime?                    @db.Timestamptz(3)
+  createdAt            DateTime                     @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                     @updatedAt @db.Timestamptz(3)
+  location             MachineLocation?
+  price                MachinePrice?
+  identifierMappings   MachineIdentifierMapping[]
+  availabilityEvidence MachineAvailabilityEvidence?
+
+  @@index([publicationState, deletedAt, machineId])
+}
+
+model MachineLocation {
+  id                String   @id @default(uuid()) @db.Uuid
+  machineInternalId String   @unique @db.Uuid
+  address           String   @db.VarChar(300)
+  serviceAreaCode   String   @db.VarChar(64)
+  latitude          Decimal? @db.Decimal(9, 6)
+  longitude         Decimal? @db.Decimal(9, 6)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+  machine           Machine  @relation(fields: [machineInternalId], references: [id], onDelete: Restrict)
+
+  @@index([serviceAreaCode])
+  @@index([latitude, longitude])
+}
+
+model MachinePrice {
+  id                String   @id @default(uuid()) @db.Uuid
+  machineInternalId String   @unique @db.Uuid
+  amountPerLiter    Decimal  @db.Decimal(20, 6)
+  currency          String   @db.Char(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+  machine           Machine  @relation(fields: [machineInternalId], references: [id], onDelete: Restrict)
+}
+
+model MachineIdentifierMapping {
+  id                String                @id @default(uuid()) @db.Uuid
+  machineInternalId String                @db.Uuid
+  kind              MachineIdentifierKind
+  normalizedValue   String                @db.VarChar(256)
+  enabled           Boolean               @default(true)
+  verifiedAt        DateTime?             @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+  machine           Machine               @relation(fields: [machineInternalId], references: [id], onDelete: Restrict)
+
+  @@unique([kind, normalizedValue])
+  @@index([kind, normalizedValue, enabled])
+}
+
+model MachineAvailabilityEvidence {
+  machineInternalId String               @id @db.Uuid
+  state             MachineEvidenceState
+  reachable         Boolean
+  readyToSell       Boolean
+  salesAllowed      Boolean
+  observedAt        DateTime             @db.Timestamptz(3)
+  receivedAt        DateTime             @db.Timestamptz(3)
+  sourceRevision    String?              @db.VarChar(100)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+  machine           Machine              @relation(fields: [machineInternalId], references: [id], onDelete: Restrict)
+
+  @@index([observedAt])
+}
+
+model MachineCatalogState {
+  singletonKey     Int      @id @default(1) @db.SmallInt
+  orderingRevision BigInt   @default(1)
+  updatedAt        DateTime @default(now()) @updatedAt @db.Timestamptz(3)
 }

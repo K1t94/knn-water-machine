@@ -1,0 +1,138 @@
+# This flow targets the isolated machine-discovery E2E build from T124. Each
+# launch resets PostgreSQL fixtures, authenticates the fixture account, opens
+# MachineDiscovery, and accepts only the named E2E scenario. The diagnostic
+# counters asserted below must exist only in test/E2E builds.
+appId: com.kaynann.watervending
+name: Machine selection fixture journey
+tags:
+    - machine-selection
+    - fixture
+env:
+    MACHINE_ID: kdBu6l4X0dCVSatmsocVsQ
+---
+# The discovery projection is deliberately older than the detail response. The
+# card must replace its catalog price with the freshly fetched current price.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SELECTION_SCENARIO: detail-price-refresh
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- assertVisible:
+      id: ^machine-card-${MACHINE_ID}$
+- assertVisible: 20 XOF / L
+- tapOn:
+      id: ^machine-card-${MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: Plateau Water 01
+- assertVisible: ONLINE
+- assertVisible: 25 XOF / L
+- assertNotVisible: 20 XOF / L
+
+# Confirmation mutates the authoritative price and state before revalidation.
+# MACHINE_CONTEXT_CHANGED must replace the card and produce no handoff or
+# selection write. Fixture-control writes are excluded from the diagnostic.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SELECTION_SCENARIO: context-changed-service
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      id: ^machine-card-${MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: 25 XOF / L
+- assertVisible: ONLINE
+- tapOn: Continuer avec ce point d’eau
+- extendedWaitUntil:
+      visible: 30.5 XOF / L
+      timeout: 15000
+- assertVisible: SERVICE
+- assertVisible: En maintenance
+- assertNotVisible: 25 XOF / L
+- assertVisible:
+      text: Continuer avec ce point d’eau
+      enabled: false
+- assertVisible:
+      id: e2e-selection-handoff-count-0
+- assertVisible:
+      id: e2e-selection-write-count-0
+
+# A separate controlled transition proves that explicit OFFLINE evidence also
+# replaces the visible card and blocks continuation without a handoff or write.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SELECTION_SCENARIO: context-changed-offline
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      id: ^machine-card-${MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: ONLINE
+- tapOn: Continuer avec ce point d’eau
+- extendedWaitUntil:
+      visible: OFFLINE
+      timeout: 15000
+- assertVisible: Hors ligne
+- assertVisible:
+      text: Continuer avec ce point d’eau
+      enabled: false
+- assertVisible:
+      id: e2e-selection-handoff-count-0
+- assertVisible:
+      id: e2e-selection-write-count-0
+
+# The stable ONLINE response is delayed so several physical taps reach the same
+# disabled/loading action. exhaustMap may yield exactly one typed handoff and
+# the backend must report zero persistent writes attributable to selection.
+- launchApp:
+      clearState: true
+      clearKeychain: true
+      permissions:
+          all: deny
+          location: deny
+      arguments:
+          E2E_MACHINE_SELECTION_SCENARIO: delayed-stable-online
+- extendedWaitUntil:
+      visible: Trouver un point
+      timeout: 15000
+- tapOn:
+      id: ^machine-card-${MACHINE_ID}$
+- extendedWaitUntil:
+      visible: FICHE ACTUALISÉE
+      timeout: 15000
+- assertVisible: 25 XOF / L
+- assertVisible: ONLINE
+- tapOn: Continuer avec ce point d’eau
+- tapOn: Continuer avec ce point d’eau
+- tapOn: Continuer avec ce point d’eau
+- extendedWaitUntil:
+      visible:
+          id: e2e-selection-handoff-count-1
+      timeout: 15000
+- assertNotVisible:
+      id: e2e-selection-handoff-count-2
+- assertVisible:
+      id: e2e-selection-write-count-0

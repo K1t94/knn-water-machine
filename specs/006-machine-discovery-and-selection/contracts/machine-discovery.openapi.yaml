@@ -1,0 +1,548 @@
+openapi: 3.1.0
+info:
+  title: Machine Discovery API
+  version: 1.0.0
+  description: >-
+    Authenticated consumer-safe machine discovery, exact identifier resolution,
+    and read-only selection revalidation. No operation creates a purchase,
+    reservation, wallet transaction, dispense session, or machine command.
+servers:
+  - url: http://localhost:3000
+security:
+  - bearerAuth: []
+paths:
+  /v1/machines:
+    get:
+      operationId: discoverMachines
+      summary: Discover a bounded deterministic page of public machines
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Latitude'
+        - $ref: '#/components/parameters/Longitude'
+        - $ref: '#/components/parameters/North'
+        - $ref: '#/components/parameters/East'
+        - $ref: '#/components/parameters/South'
+        - $ref: '#/components/parameters/West'
+      responses:
+        '200':
+          description: Public catalog page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineCatalogPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '409':
+          $ref: '#/components/responses/DiscoveryContextStale'
+        '503':
+          $ref: '#/components/responses/TemporaryUnavailable'
+  /v1/machines/{machineId}:
+    get:
+      operationId: getMachineDetail
+      summary: Refresh one public machine card
+      parameters:
+        - $ref: '#/components/parameters/MachineId'
+        - $ref: '#/components/parameters/Latitude'
+        - $ref: '#/components/parameters/Longitude'
+      responses:
+        '200':
+          description: Fresh allowlisted machine detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '503':
+          $ref: '#/components/responses/TemporaryUnavailable'
+  /v1/machines/resolve:
+    post:
+      operationId: resolveMachineIdentifier
+      summary: Resolve a supported QR payload or manual code exactly
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveMachineRequest'
+      responses:
+        '200':
+          description: Fresh allowlisted detail for the exact public match
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineDetail'
+        '400':
+          description: Invalid, ambiguous, or unsupported input syntax/scheme
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                invalidCode:
+                  value:
+                    code: MACHINE_CODE_INVALID
+                    message: The machine code format is not supported.
+                    retryable: false
+                    correlationId: 01JEXAMPLE0000000000000000
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '503':
+          $ref: '#/components/responses/TemporaryUnavailable'
+  /v1/machines/{machineId}/selection-revalidation:
+    post:
+      operationId: revalidateMachineSelection
+      summary: Revalidate current price and eligibility for typed handoff
+      parameters:
+        - $ref: '#/components/parameters/MachineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectionRevalidationRequest'
+      responses:
+        '200':
+          description: Current eligible context; no purchase side effect occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineSelectionHandoff'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          $ref: '#/components/responses/MachineNotFound'
+        '409':
+          description: >-
+            Selection-relevant context changed. The client must display the
+            returned fresh detail and require a new explicit confirmation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/MachineContextChangedProblem'
+        '422':
+          description: Current public machine exists but is not selectable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                code: MACHINE_NOT_SELECTABLE
+                message: This machine is not currently available for selection.
+                retryable: false
+                correlationId: 01JEXAMPLE0000000000000000
+        '503':
+          $ref: '#/components/responses/TemporaryUnavailable'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: AccessToken
+  parameters:
+    MachineId:
+      name: machineId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MachineId'
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: >-
+        Opaque signed continuation token. It is valid only with the discovery
+        context that created it and must not be parsed by clients.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 2048
+    Latitude:
+      name: latitude
+      in: query
+      required: false
+      description: Must be supplied together with longitude.
+      schema:
+        type: number
+        format: double
+        minimum: -90
+        maximum: 90
+    Longitude:
+      name: longitude
+      in: query
+      required: false
+      description: Must be supplied together with latitude.
+      schema:
+        type: number
+        format: double
+        minimum: -180
+        maximum: 180
+    North:
+      name: north
+      in: query
+      required: false
+      description: Viewport fields must be supplied as one complete set.
+      schema:
+        type: number
+        minimum: -90
+        maximum: 90
+    East:
+      name: east
+      in: query
+      required: false
+      schema:
+        type: number
+        minimum: -180
+        maximum: 180
+    South:
+      name: south
+      in: query
+      required: false
+      schema:
+        type: number
+        minimum: -90
+        maximum: 90
+    West:
+      name: west
+      in: query
+      required: false
+      schema:
+        type: number
+        minimum: -180
+        maximum: 180
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ValidationProblem'
+    AuthenticationError:
+      description: Access session is missing, invalid, expired, or revoked
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            code: AUTHENTICATION_REQUIRED
+            message: Authentication is required.
+            retryable: false
+            correlationId: 01JEXAMPLE0000000000000000
+    MachineNotFound:
+      description: >-
+        Uniform response for unknown, hidden, archived, deleted, non-customer,
+        inaccessible, disabled-alias, and unmapped identifiers.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            code: MACHINE_NOT_FOUND
+            message: Machine not found.
+            retryable: false
+            correlationId: 01JEXAMPLE0000000000000000
+    DiscoveryContextStale:
+      description: Catalog ordering changed; discard cursor and refresh safely
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            code: DISCOVERY_CONTEXT_STALE
+            message: The machine list changed. Refresh to continue.
+            retryable: true
+            correlationId: 01JEXAMPLE0000000000000000
+    TemporaryUnavailable:
+      description: Catalog or availability dependency is temporarily unavailable
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            code: DISCOVERY_TEMPORARILY_UNAVAILABLE
+            message: Machine information is temporarily unavailable.
+            retryable: true
+            correlationId: 01JEXAMPLE0000000000000000
+  schemas:
+    MachineId:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{22}$'
+      description: Immutable opaque public identifier; no embedded semantics.
+      examples:
+        - 7mQ3LJvR9Gf2xK8pNc4YAw
+    MachineStatus:
+      type: string
+      enum: [ONLINE, SERVICE, OFFLINE]
+    Coordinates:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+    PricePerLiter:
+      type: object
+      additionalProperties: false
+      required: [amountPerLiter, currency]
+      properties:
+        amountPerLiter:
+          type: string
+          pattern: '^[0-9]+(?:\.[0-9]{1,6})?$'
+          description: Exact positive decimal string; clients must not use binary float for comparison.
+          examples: ['2.500000']
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          examples: [RUB]
+    MachineSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - machineId
+        - displayName
+        - address
+        - status
+        - machineRevision
+      properties:
+        machineId:
+          $ref: '#/components/schemas/MachineId'
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        address:
+          type: string
+          minLength: 1
+          maxLength: 300
+        coordinates:
+          $ref: '#/components/schemas/Coordinates'
+        distanceMeters:
+          type: integer
+          minimum: 0
+          description: Present only when a valid user location was supplied.
+        price:
+          $ref: '#/components/schemas/PricePerLiter'
+        status:
+          $ref: '#/components/schemas/MachineStatus'
+        machineRevision:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+    MachineDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - machineId
+        - displayName
+        - address
+        - status
+        - machineRevision
+        - selectable
+        - refreshedAt
+      properties:
+        machineId:
+          $ref: '#/components/schemas/MachineId'
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        address:
+          type: string
+          minLength: 1
+          maxLength: 300
+        coordinates:
+          $ref: '#/components/schemas/Coordinates'
+        distanceMeters:
+          type: integer
+          minimum: 0
+        price:
+          $ref: '#/components/schemas/PricePerLiter'
+        status:
+          $ref: '#/components/schemas/MachineStatus'
+        machineRevision:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        selectable:
+          type: boolean
+        refreshedAt:
+          type: string
+          format: date-time
+    MachineCatalogPage:
+      type: object
+      additionalProperties: false
+      required: [items, hasMore, catalogRevision]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/MachineSummary'
+        nextCursor:
+          type: string
+          description: Omitted when hasMore is false.
+        hasMore:
+          type: boolean
+        catalogRevision:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+    ResolveMachineRequest:
+      oneOf:
+        - $ref: '#/components/schemas/ResolveQrRequest'
+        - $ref: '#/components/schemas/ResolveManualRequest'
+      discriminator:
+        propertyName: source
+        mapping:
+          QR: '#/components/schemas/ResolveQrRequest'
+          MANUAL: '#/components/schemas/ResolveManualRequest'
+    ResolveQrRequest:
+      type: object
+      additionalProperties: false
+      required: [source, value]
+      properties:
+        source:
+          type: string
+          const: QR
+        value:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: >-
+            Only supported versioned trusted application addresses or explicitly
+            approved legacy formats are parsed. Arbitrary URLs are never opened.
+    ResolveManualRequest:
+      type: object
+      additionalProperties: false
+      required: [source, value]
+      properties:
+        source:
+          type: string
+          const: MANUAL
+        value:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Trimmed and normalized only by the selected approved grammar.
+    SelectionRevalidationRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedMachineRevision]
+      properties:
+        expectedMachineRevision:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+    MachineSelectionHandoff:
+      type: object
+      additionalProperties: false
+      required:
+        - machineId
+        - machineRevision
+        - price
+        - availability
+        - validatedAt
+      properties:
+        machineId:
+          $ref: '#/components/schemas/MachineId'
+        machineRevision:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+        price:
+          $ref: '#/components/schemas/PricePerLiter'
+        availability:
+          type: string
+          const: ONLINE
+        validatedAt:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable, correlationId]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]+$'
+        message:
+          type: string
+        retryable:
+          type: boolean
+        correlationId:
+          type: string
+    ValidationProblem:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable, correlationId]
+      properties:
+        code:
+          type: string
+          const: VALIDATION_ERROR
+        message:
+          type: string
+        retryable:
+          type: boolean
+          const: false
+        correlationId:
+          type: string
+        fields:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, code]
+            properties:
+              field:
+                type: string
+              code:
+                type: string
+    MachineContextChangedProblem:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - retryable
+        - correlationId
+        - currentMachine
+      properties:
+        code:
+          type: string
+          const: MACHINE_CONTEXT_CHANGED
+        message:
+          type: string
+        retryable:
+          type: boolean
+          const: false
+        correlationId:
+          type: string
+        currentMachine:
+          $ref: '#/components/schemas/MachineDetail'
